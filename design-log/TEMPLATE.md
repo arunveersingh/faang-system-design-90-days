@@ -1,6 +1,6 @@
 # Design log entry
 
-Copy this file. Do not fill it in on the template itself if this clone is public.
+Copy this file into your own notes. Do not fill it in on the template itself.
 
 - Date (PT or your local label; be consistent):
 - Day:

@@ -1,3 +1,6 @@
+<!-- day-nav -->
+[← Day 3 — Capacity math out loud](03-capacity-math-out-loud.md) · [Day 5 — One box, and why it breaks →](05-one-box-and-why-it-breaks.md)
+
 # Day 4 — API and data model first
 
 ## Time box
@@ -284,3 +287,8 @@ One stencil note for the data-model blank. The blank itself is in [stencils](../
 Did your attempt recycle ids, or did you pick a width you could not justify? Write the bound you can now say, in one sentence, as the gap if you missed it. If you got the width and missed "same 404," that is the gap instead. One gap.
 
 Next: [Day 5 — One box, and why it breaks](05-one-box-and-why-it-breaks.md).
+
+---
+
+<!-- day-nav -->
+[← Day 3 — Capacity math out loud](03-capacity-math-out-loud.md) · [Day 5 — One box, and why it breaks →](05-one-box-and-why-it-breaks.md)

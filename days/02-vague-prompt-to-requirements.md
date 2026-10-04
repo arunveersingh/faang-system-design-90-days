@@ -1,3 +1,6 @@
+<!-- day-nav -->
+[← Day 1 — What the interviewer is grading](01-what-the-interview-is-grading.md) · [Day 3 — Capacity math out loud →](03-capacity-math-out-loud.md)
+
 # Day 2 — Vague prompt to requirements
 
 ## Time box
@@ -199,3 +202,8 @@ If you cannot recite the row, you are not done with day 2. The kit is not requir
 From your pre-read page: which non-goal did you miss, and which assumption did you state as a fact? One gap, one sentence.
 
 Next: [Day 3 — Capacity math out loud](03-capacity-math-out-loud.md).
+
+---
+
+<!-- day-nav -->
+[← Day 1 — What the interviewer is grading](01-what-the-interview-is-grading.md) · [Day 3 — Capacity math out loud →](03-capacity-math-out-loud.md)

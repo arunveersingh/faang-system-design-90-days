@@ -1,3 +1,6 @@
+<!-- day-nav -->
+[← Start](../START.md) · [Day 2 — Vague prompt to requirements →](02-vague-prompt-to-requirements.md)
+
 # Day 1 — What the interviewer is grading
 
 ## Time box
@@ -181,3 +184,8 @@ Copy [the template](../design-log/TEMPLATE.md) only if you want to keep today. M
 Prompt for today, five lines: the six signals you will actually practice, and one sentence you will stop saying in interviews. That sentence is the gap.
 
 Next: [Day 2 — Vague prompt to requirements](02-vague-prompt-to-requirements.md).
+
+---
+
+<!-- day-nav -->
+[← Start](../START.md) · [Day 2 — Vague prompt to requirements →](02-vague-prompt-to-requirements.md)
