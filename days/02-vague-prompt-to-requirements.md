@@ -9,8 +9,6 @@
 2. Attempt the problem. Stop at the attempt line. Do not scroll.
 3. Then read.
 
-![Whiteboard: a one-line problem becomes behavior, constraints, and non-goals, not servers first](assets/day-02-problem-to-requirements.svg)
-
 ## Time box
 
 35 minutes.
@@ -136,6 +134,8 @@ A hot link is still a point read of one id. Do not "solve" popularity in the req
 
 ## Diagrams
 
+![Whiteboard: a one-line problem becomes behavior, constraints, and non-goals, not servers first](assets/day-02-problem-to-requirements.svg)
+
 ### Context and trust
 
 ```mermaid
@@ -169,15 +169,11 @@ If your arrow from the prompt points at "pick a database," redo the diagram.
 
 **Choice.** A capability URL, anonymous create, no accounts.
 
-
 **Alternative.** Authenticated owners. Every paste has a user id. Read is open or private based on a flag. Delete uses the session.
-
 
 **What you give up.** Lost URL means the creator's only remaining power is the delete token, which they also have to keep. There is no "email me my pastes." Support cannot verify ownership, because there is no owner. A token in a proxy log is a bearer secret; you will store only a hash (day 4), but the plaintext still exists on the client.
 
-
 **Why you still choose it.** The prompt is "share a link," not "build a user system." Accounts put a login dependency in front of create, and they invite a private/public matrix you then have to get right on every read. The capability URL makes the read path one key.
-
 
 **10× break.** Ten times the users does not flip this choice. Accounts at 10× are still a policy problem, not a scale win. What 10× will break is egress, metadata QPS, or backup, which you have not earned the right to name precisely until day 3. Do not "upgrade" to accounts because the system got bigger.
 

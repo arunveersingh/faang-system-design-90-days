@@ -136,8 +136,13 @@ One legal design, at interview depth. Yours can differ and still be a 3. It is n
 
 ### What transfers
 
-This is not the pastebin with the nouns swapped. **Bytes, not QPS.** About 12 uploads a second is a small number; about 2 TB a day of originals, and one 20 MB object fetched hard enough to be ~32 Gbit/s, is the design. **201 before thumbs.** The ack waits until the original is in the bucket and the row has committed. Resize is not on that path. **Public 404 versus the owner.** A viewer who fetches a thumb that is not built yet gets the same 404 as an unknown id. The owner, holding the token, reads status and can see not-ready or failed. Do not reuse 17,400 reads of 10 KB as this product's bottleneck.
+This is not the pastebin with the nouns swapped. Three moves transfer, and each one is a reason, not a slogan.
 
+**Bytes, not QPS.** About 12 uploads a second will not melt a primary. About 2 TB a day of originals will fill the disk you thought was "just images." One 20 MB object fetched 200 times a second is 4 GB/s, about 32 Gbit/s, which blows a 10 Gbit NIC while the average still looks fine. Do not reuse 17,400 reads of 10 KB as this product's bottleneck. That number points you at a metadata cache you have not earned and away from the bucket and the edge.
+
+**201 before thumbs.** The user is waiting for a link to the original. Resize is CPU you do not control: a poison image, a slow codec, a dead worker. If 201 waits on it, a stuck worker is an upload outage, and a client timeout retries the whole POST. The ack waits until the original is in the bucket and the row, with the job, has committed. The three renditions run after, on a job that is safe to do twice because the keys are derived from the id.
+
+**Public 404 versus the owner.** A viewer who fetches a thumb that is not built yet gets the same 404 body as an unknown, deleted, or expired id. A distinct "not ready" status is an oracle: the image exists, try again in a second. The owner, holding the token, reads status and can see not-ready or failed, because they already know the id exists. Down is not that 404. A cold fetch while the bucket is sick is 503, or the client will treat a blip as deletion and stop retrying.
 
 ### Requirements
 
@@ -153,24 +158,33 @@ This is not the pastebin with the nouns swapped. **Bytes, not QPS.** About 12 up
 
 ### Estimates
 
-| Quantity | Result |
-|---|---|
-| Upload QPS | 1,000,000 / 86,400 ≈ **12** average, **~36** peak |
-| Thumb jobs | the same **12/s** average, **~36** peak |
-| Fetches | 12 × 35 ≈ **420/s** average, **~1,260/s** peak |
-| Ingest | 1e6 × 2 MB = **2 TB/day** originals, plus ~**0.25 TB/day** of thumbs |
-| Resident, 180-day mix | **~360 TB** originals, **~45 TB** thumbs |
-| Worst allow-list, 365 days | about **double** the originals, ~730 TB |
-| Metadata | hundreds of bytes × 1e6 × 180 ≈ **~90 GB** |
-| Egress | originals dominate: 60 fetches/s × 2 MB ≈ **120 MB/s** average, **~360 MB/s** peak, plus ~30 MB/s of thumbs average. Peak total on the order of **3–4 Gbit/s** |
+Round one place and then stay there. 1,000,000 / 86,400 = 11.57, which I call **12** uploads/s so the later products are integers. Peak is 3 × 12 = **36**, about 4% above 3 × 11.57. I will not also quote 35.
 
-QPS is boring. Bytes are not. A single 20 MB image fetched 200 times a second is 4 GB/s, about **32 Gbit/s**, which is the hot-object break even when the average NIC math looks survivable. That is why public bytes are not streamed through the app as the steady state.
+Thumb bytes are an assumption you say out loud: long edge 64, 256, and 1024 land near **8 KB, 40 KB, and 200 KB**, about **250 KB** together, **0.25 MB**. If your codec is fatter, this column moves and the upload QPS does not.
 
-Worker CPU, planning: a resize of a 2 MB image takes ~200 ms of CPU. Peak 36 jobs × 0.2 s ≈ **7 cores**. Say a small worker pool. This is a planning number, not a benchmark. If resize is 2 seconds, you need ~70 cores or you accept a backlog. The queue is what makes that a backlog instead of an upload outage.
+| Quantity | Work | Result |
+|---|---|---|
+| Upload QPS | 1,000,000 / 86,400, rounded | **12/s** average, **36/s** peak |
+| Thumb jobs | one job per upload, three renditions inside it | **12/s** average, **36/s** peak. Not 36 × 3 jobs. |
+| Fetches per image | 5 original + 30 thumb, over its life | **35** |
+| Fetch QPS | 12 × 35, then ×3 | **420/s** average, **1,260/s** peak |
+| Original fetches | 12 × 5 | **60/s** average, **180/s** peak |
+| Thumb fetches | 12 × 30 | **360/s** average, **1,080/s** peak |
+| Ingest | 1e6 × 2 MB, and 1e6 × 0.25 MB | **2 TB/day** originals, **0.25 TB/day** thumbs |
+| Resident, 180-day mix | 180 × daily ingest | **360 TB** originals, **45 TB** thumbs |
+| Worst allow-list, 365 days | 365 × 2 TB | **730 TB** originals, about double the 180-day mix (360 × 2 = 720) |
+| Metadata | ~500 bytes × 1e6 × 180 | **90 GB**. "Hundreds of bytes" only lands here if you are near 500. Say 500. |
+| Original egress | 60/s × 2 MB | **120 MB/s** average, **360 MB/s** peak |
+| Thumb egress | 30 fetches across 3 objects is about **10 reads of each stored thumb byte**: 12/s × 10 × 0.25 MB | **30 MB/s** average, **90 MB/s** peak |
+| Total egress | 150 MB/s average, 450 MB/s peak, ×8 | **1.2 Gbit/s** average, **3.6 Gbit/s** peak |
 
-**10×.** ~360 uploads/s peak, ~20 TB/day, multi-petabyte resident if the mix holds, egress ~30–40 Gbit/s if viewing scales. The CDN and the bucket are the components you are scaling. The primary's QPS still is not the story. Worker cores scale toward ~70 at the same 200 ms assumption. If they do not, thumb latency is the user-visible 10× break, not upload correctness, as long as 201 did not wait on resize.
+QPS of 12 is a small service. 2 TB/day is not. A single 20 MB original at **200 fetches/s** — one viral image, an assumption, not the mean of 60 — is 20e6 × 200 = 4e9 bytes/s = **4 GB/s = 32 Gbit/s**. Average egress of 3.6 Gbit/s fits a 10 Gbit NIC. That one object does not. Public bytes are therefore not streamed through the app as the steady state. The edge absorbs the viral object. The app checks the row and, on a miss, pulls the private bucket once per edge fill.
 
-Sensitive assumption: mean original size. If the mean is 10 MB, ingest and egress multiply by five and today's bandwidth story is already the 10× story.
+Worker CPU, planning, not a benchmark: a resize of a 2 MB image takes ~200 ms of CPU. 36 jobs/s × 0.2 s = **7.2 cores**, call it a small pool of about **7**. If resize is 2 seconds, 36 × 2 = **72 cores**, or you accept a backlog. The queue is what makes that a backlog instead of an upload outage. Do not put those cores on the request that returns 201.
+
+**10×.** Uploads **120/s** average and **360/s** peak. Originals **20 TB/day**. Resident originals **3.6 PB** if the 180-day mix holds (360 TB × 10). Egress **36 Gbit/s** if viewing scales with uploads (3.6 × 10). The CDN and the bucket are what you are scaling. Commits are ~360/s peak, still not a pastebin read problem. At the same 200 ms, workers go to about **72 cores** (10 × 7.2). If you do not have them, thumb latency is the user-visible 10× break. Upload correctness is not, as long as 201 did not wait on resize.
+
+Sensitive assumption: mean original size. If the mean is 10 MB, ingest and original egress multiply by five (10 TB/day, 600 MB/s average) and today's bandwidth story is already the 10× story. The upload QPS does not change when the mean size does. That is the whole point of separating them.
 
 ### API and data
 
@@ -188,7 +202,7 @@ Upload: limit, check length, take an in-flight slot (these bodies are 2 MB mean 
 
 Worker: claim the job, GET the original, resize, PUT the three keys, set `thumbs_ready`. Doing it twice overwrites the same keys. A poison image that will not decode: set `failed`, ack the job, do not retry forever. The original remains fetchable. Thumbs stay 404. Status shows failed.
 
-View: CDN in front of public GETs only. Origin is the app, bucket stays private. Metadata cache holds the row, including `thumbs_ready`. Do not cache `thumbs_ready=false` for more than a few seconds, or you will pin "not ready" and the CDN must not cache the 404. Once ready, max-age is min(60 seconds, time left until `expires_at`), same delete bound as any other public byte cache. A hot original is a CDN problem, not a primary problem.
+View: CDN in front of public GETs only. Origin is the app, bucket stays private. Metadata cache holds the row, including `thumbs_ready`. Do not cache `thumbs_ready=false` for more than a few seconds, or a hit will keep saying not-ready after the worker finished, and the CDN must not cache the public 404 or a thumb that becomes ready stays missing for the whole negative TTL. Once ready, max-age is min(60 seconds, time left until `expires_at`), the same bound you already accepted so a delete can be late but not unbounded. A hot original is a CDN problem, not a primary problem. Caching the 20 MB original on the app recreates the 32 Gbit/s object on a process you sized for authorization, not for that NIC.
 
 Delete: commit row delete and outbox, tombstone the metadata key, 204. Worker deletes four objects and purges. Ids are never reused, so a late job cannot delete a newer image's keys.
 
@@ -232,7 +246,7 @@ A pastebin's 17,400 reads/s of 10 KB. A search index. A GPU. A second queue for 
 
 ## Say this in the room
 
-Uploads are about 12 a second, and the bytes are the story: about 2 TB a day, not a read-QPS problem copied from the pastebin. I return 201 once the original is durable, and the three thumbnails run after, on a job that is safe to do twice. A public fetch of a thumb that is not ready is a 404, the same body as missing, so a stranger learns nothing. The owner polls status with the token and can see not-ready or failed. If the bucket is down, upload is 503 and a warm edge can still serve; that is not a 404.
+Uploads are about 12 a second because a million a day divided by 86,400 is about 12, and the bytes are the story: 2 MB mean is 2 TB a day, not a read-QPS problem copied from the pastebin. A 20 MB image at 200 fetches a second is 32 Gbit/s, so the edge holds the hot object and the app does not. I return 201 once the original PUT has acked and the row and the job have committed. The three thumbnails run after, on keys derived from the id, so doing the job twice overwrites the same objects. A public fetch of a thumb that is not ready is a 404 with the same body as missing, so a stranger learns nothing, and I do not let the CDN cache that 404. The owner polls status with the token and can see not-ready or failed. If the bucket is down, upload is 503 and a cold fetch is 503; a warm edge can still serve until max-age. That 200 is not a 404, and the 503 is not a 404 either.
 
 ### After you read this
 

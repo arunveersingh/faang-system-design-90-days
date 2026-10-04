@@ -22,6 +22,6 @@ Days 1–28 are written. Days 29–90 are coming and are not links, so there is 
 
 The log is yours. The [template](design-log/TEMPLATE.md) is only a shape. Copy it into your own notes.
 
-Whiteboard figures are SVG on days 1–3 and 8–10. The other days use mermaid you can redraw. Search sits in the corner of the book.
+Whiteboard figures are SVG on days 1–3 and 8–10, with the other diagrams, after the attempt line. The picture is not the opener. The other days use mermaid you can redraw. Search sits in the corner of the book.
 
 The interview kit is sold separately. It is not required to start, and it is not part of this book.
