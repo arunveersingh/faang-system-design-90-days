@@ -1,5 +1,5 @@
 <!-- day-nav -->
-[← Day 6 — A diagram that survives](06-a-diagram-that-survives.md) · [Checklist →](../CHECKLIST.md)
+[← Day 6 — A diagram that survives](06-a-diagram-that-survives.md) · [Day 8 — The second box →](08-the-second-box.md)
 
 # Day 7 — Timed dry run (pastebin)
 
@@ -266,9 +266,9 @@ Hand-waving, even if the picture was fine: "Kafka for scale," "Cassandra," "a mi
 
 ### After you read this
 
-Add one amendment line to the log: the concrete miss (a number, a branch, or a tier you added). Leave the scores alone. Tomorrow is not a restatement of this page. The next written lessons are not in the repo yet. The curriculum says what they will be. Do not skip ahead by inventing a distributed pastebin from this reference; day 5 already told you the first split and told you not to draw it until the limit is the question.
+Add one amendment line to the log: the concrete miss (a number, a branch, or a tier you added). Leave the scores alone. Tomorrow is not a restatement of this page. [Day 8](08-the-second-box.md) starts Phase 2: each new box has to fix a break you can already name. Do not skip ahead by drawing a fleet this reference refused. Day 5 already told you the first split, and told you not to draw it until the limit is the question.
 
 ---
 
 <!-- day-nav -->
-[← Day 6 — A diagram that survives](06-a-diagram-that-survives.md) · [Checklist →](../CHECKLIST.md)
+[← Day 6 — A diagram that survives](06-a-diagram-that-survives.md) · [Day 8 — The second box →](08-the-second-box.md)

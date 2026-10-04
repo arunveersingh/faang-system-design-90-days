@@ -1,10 +1,10 @@
 # Curriculum
 
-> **This is the map, not today's lesson.** Days 1–7 are written. Start at [Day 1](days/01-what-the-interview-is-grading.md). Days 8–90 are titles until a page exists.
+> **This is the map, not today's lesson.** Days 1–28 are written. Start at [Day 1](days/01-what-the-interview-is-grading.md). Days 29–90 are titles until a page exists.
 
 Interview-depth system design for senior and staff loops. One day, one sitting. Pure distributed systems: no AI or ML lessons.
 
-This file is the 90-day assignment list, adapted from the course topic list for this repo. **Phase 1 (days 1–7) is written** under `days/`. Days 8–90 are assigned below and are not in the repo yet. Do not treat a title as a lesson until a page exists.
+This file is the 90-day assignment list, adapted from the course topic list for this repo. **Phase 1 (days 1–7) and Phase 2 (days 8–28) are written** under `days/`. Days 29–90 are assigned below and are not in the repo yet. Do not treat a title as a lesson until a page exists.
 
 Prompt pages under [`prompts/`](prompts/README.md) are the live bank. If Arunveer or the team updates a prompt, **the prompt file wins** over a title here. Read the prompt page on this site before a mock.
 
@@ -44,27 +44,27 @@ Each new box is a fix for a break in the pastebin, not a catalog of tools. Day 2
 
 | Day | Title | Type | Intent |
 |---|---|---|---|
-| 8 | The second box | Lesson | Facing a saturated process, leave able to split a stateless app tier and say where session and file state still sit. |
-| 9 | Load balancing and draining | Lesson | Facing uneven load, leave able to choose balancing, health checks, and drain behavior and what each does to in-flight work. |
-| 10 | Cache-aside for the melted read | Lesson | Facing a database melted by reads, leave able to add cache-aside and name the miss path and what must not be cached. |
-| 11 | Hot-key stampede | Lesson | Facing a hot pastebin key, leave able to stop a stampede without treating a TTL as invalidation. |
-| 12 | SQL or NoSQL from the broken query | Lesson | Facing a query the current store cannot serve, leave able to choose SQL or NoSQL from the access pattern and name what you give up. |
-| 13 | Replication and the lagging read | Lesson | Facing a durability or read-scale wall, leave able to add replicas and refuse a lagging replica for reads that cannot lie. |
-| 14 | Object storage for the body | Lesson | Facing large bodies in the database, leave able to move bytes to object storage and name the orphan-object failure. |
-| 15 | CDN in front of public bytes | Lesson | Facing origin bandwidth on public reads, leave able to place a CDN and say what stays origin-authoritative. |
-| 16 | Queue for work the user does not wait on | Lesson | Facing work that should not block the response, leave able to add a queue and describe the backlog the user can see. |
-| 17 | Rate limits and abuse | Lesson | Facing a public write API, leave able to put rate limits and abuse control on the path before the expensive store. |
-| 18 | Consistent hashing when nodes change | Lesson | Facing cache or storage nodes that come and go, leave able to use consistent hashing and say when a fixed slot map is simpler. |
-| 19 | Backpressure and load shedding | Lesson | Facing a dependency slower than arrivals, leave able to apply backpressure or shed load and say who feels it. |
-| 20 | Timeouts and retry storms | Lesson | Facing a slow dependency, leave able to set timeouts and retries so a blip cannot multiply into a storm. |
-| 21 | Capacity redo with visible assumptions | Lesson | Facing a design that only works at the average, leave able to redo the estimate with fan-out and a stated cache-hit assumption. |
-| 22 | Noisy neighbor and fairness | Lesson | Facing tenants on one cluster, leave able to cap a noisy neighbor so one key cannot spend the whole budget. |
-| 23 | Read path and write path | Lesson | Facing one tangled picture, leave able to narrate the read path and the write path as separate sequences. |
-| 24 | The order-of-magnitude break | Lesson | Facing a large jump in traffic, leave able to name the first component that breaks and the fix you would reach for next. |
-| 25 | Failure overlay on the pastebin | Lesson | Facing "what if this dies," leave able to overlay one dependency failure and the user-visible result. |
-| 26 | End-to-end distributed pastebin | Lesson | Facing a full loop on the spine, leave able to assemble the distributed pastebin in one interview-shaped pass. |
-| 27 | Red-team before they do | Lesson | Facing your own finished design, leave able to find the holes a staff interviewer would open and patch the reasoning. |
-| 28 | Mock: image upload and thumbnails | Mock | Facing a prompt that is not the pastebin, leave able to design image upload and thumbnails with a cache, a durable store, and a queue, then log a self-score. |
+| 8 | [The second box](days/08-the-second-box.md) | Lesson | Facing a saturated process, leave able to split a stateless app tier and say where session and file state still sit. |
+| 9 | [Load balancing and draining](days/09-load-balancing-and-draining.md) | Lesson | Facing uneven load, leave able to choose balancing, health checks, and drain behavior and what each does to in-flight work. |
+| 10 | [Cache-aside for the melted read](days/10-cache-aside-for-the-melted-read.md) | Lesson | Facing a database melted by reads, leave able to add cache-aside and name the miss path and what must not be cached. |
+| 11 | [Hot-key stampede](days/11-hot-key-stampede.md) | Lesson | Facing a hot pastebin key, leave able to stop a stampede without treating a TTL as invalidation. |
+| 12 | [SQL or NoSQL from the broken query](days/12-sql-or-nosql-from-the-broken-query.md) | Lesson | Facing a query the current store cannot serve, leave able to choose SQL or NoSQL from the access pattern and name what you give up. |
+| 13 | [Replication and the lagging read](days/13-replication-and-the-lagging-read.md) | Lesson | Facing a durability or read-scale wall, leave able to add replicas and refuse a lagging replica for reads that cannot lie. |
+| 14 | [Object storage for the body](days/14-object-storage-for-the-body.md) | Lesson | Facing large bodies in the database, leave able to move bytes to object storage and name the orphan-object failure. |
+| 15 | [CDN in front of public bytes](days/15-cdn-in-front-of-public-bytes.md) | Lesson | Facing origin bandwidth on public reads, leave able to place a CDN and say what stays origin-authoritative. |
+| 16 | [Queue for work the user does not wait on](days/16-queue-for-work-the-user-does-not-wait-on.md) | Lesson | Facing work that should not block the response, leave able to add a queue and describe the backlog the user can see. |
+| 17 | [Rate limits and abuse](days/17-rate-limits-and-abuse.md) | Lesson | Facing a public write API, leave able to put rate limits and abuse control on the path before the expensive store. |
+| 18 | [Consistent hashing when nodes change](days/18-consistent-hashing-when-nodes-change.md) | Lesson | Facing cache or storage nodes that come and go, leave able to use consistent hashing and say when a fixed slot map is simpler. |
+| 19 | [Backpressure and load shedding](days/19-backpressure-and-load-shedding.md) | Lesson | Facing a dependency slower than arrivals, leave able to apply backpressure or shed load and say who feels it. |
+| 20 | [Timeouts and retry storms](days/20-timeouts-and-retry-storms.md) | Lesson | Facing a slow dependency, leave able to set timeouts and retries so a blip cannot multiply into a storm. |
+| 21 | [Capacity redo with visible assumptions](days/21-capacity-redo-with-visible-assumptions.md) | Lesson | Facing a design that only works at the average, leave able to redo the estimate with fan-out and a stated cache-hit assumption. |
+| 22 | [Noisy neighbor and fairness](days/22-noisy-neighbor-and-fairness.md) | Lesson | Facing tenants on one cluster, leave able to cap a noisy neighbor so one key cannot spend the whole budget. |
+| 23 | [Read path and write path](days/23-read-path-and-write-path.md) | Lesson | Facing one tangled picture, leave able to narrate the read path and the write path as separate sequences. |
+| 24 | [The order-of-magnitude break](days/24-the-order-of-magnitude-break.md) | Lesson | Facing a large jump in traffic, leave able to name the first component that breaks and the fix you would reach for next. |
+| 25 | [Failure overlay on the pastebin](days/25-failure-overlay-on-the-pastebin.md) | Lesson | Facing "what if this dies," leave able to overlay one dependency failure and the user-visible result. |
+| 26 | [End-to-end distributed pastebin](days/26-end-to-end-distributed-pastebin.md) | Lesson | Facing a full loop on the spine, leave able to assemble the distributed pastebin in one interview-shaped pass. |
+| 27 | [Red-team before they do](days/27-red-team-before-they-do.md) | Lesson | Facing your own finished design, leave able to find the holes a staff interviewer would open and patch the reasoning. |
+| 28 | [Mock: image upload and thumbnails](days/28-mock-image-upload-and-thumbnails.md) | Mock | Facing an interview problem that is not the pastebin, leave able to design image upload and thumbnails with a cache, a durable store, and a queue, then log a self-score. |
 
 ## Phase 3 — Data and consistency (Days 29–49)
 

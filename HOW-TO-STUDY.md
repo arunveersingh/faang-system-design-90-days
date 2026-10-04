@@ -14,11 +14,11 @@ One numbered day. One sitting. **30–40 minutes.** Stop at 40 even mid-sentence
 
 A timer, a blank page, and no notes from that week. Score yourself with the rubric on the page. Write the log entry from *your* attempt. Only then read the reference under the attempt barrier.
 
-Day 7 is that mock for Phase 1. If you already scrolled past the barrier, close the page and run it tomorrow from memory.
+Day 7 is that mock for Phase 1. Day 28 is the mock for Phase 2, and it is not the pastebin. If you already scrolled past a barrier, close the page and run it tomorrow from memory.
 
 ## What not to do
 
-- Do not treat the [curriculum](CURRICULUM.md) as today's lesson. It is the map. Days 1–7 are the pages that exist.
+- Do not treat the [curriculum](CURRICULUM.md) as today's lesson. It is the map. Days 1–28 are written. Later days are titles until a page exists.
 - Do not keep a second copy of a prompt "so you have it." The prompt page on this site is the card.
 - Do not wait for the kit. Days you can run now do not need it. The kit is a separate product.
 

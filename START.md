@@ -14,9 +14,9 @@ Budget **40 minutes**. Attempt before you read. Stop at 40 even if you are mid-s
 
 The log is yours. The [template](design-log/TEMPLATE.md) is only a shape. Copy it into your own notes. Do not fill it in on this site.
 
-Days 1–7 are written. The [curriculum](CURRICULUM.md) is the map of all 90 days, not today's lesson. Do not skip ahead.
+Days 1–28 are written (Phase 1 and Phase 2). The [curriculum](CURRICULUM.md) is the map of all 90 days, not today's lesson. Do not skip ahead.
 
-The ritual, one page: [How to study](HOW-TO-STUDY.md). A Phase 1 list you can print: [checklist](CHECKLIST.md). Ticks stay on paper or in your notes. They are not saved here.
+The ritual, one page: [How to study](HOW-TO-STUDY.md). A list you can print: [checklist](CHECKLIST.md). Ticks stay on paper or in your notes. They are not saved here.
 
 SVG diagrams are coming. Until then, figures in the lessons are mermaid or ASCII you could put on a whiteboard.
 
