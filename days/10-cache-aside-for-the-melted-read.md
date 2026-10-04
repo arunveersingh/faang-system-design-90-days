@@ -54,7 +54,7 @@ New planning ceiling, same status as the 5 ms fsync and the 8,000-read process:
 
 **A primary that is group-committing a few hundred writes a second can serve about 15,000 point reads a second before its CPU saturates.** Not a benchmark. Peak reads are 17,400. You are over, barely, before you count the sweeper and the replica you do not have yet.
 
-Day 5 told you not to add a cache to feel safe, and to load-test 17,000 point reads. This day is that test coming back over the line you are willing to promise. If they tell you the primary does 80,000 point reads while writing, you take the cache back off and you do not argue. The box has to follow the ceiling.
+Day 5 told you not to add a cache to feel safe, and to load-test the 17,400 point reads. This day is that test coming back over the line you are willing to promise. If they tell you the primary does 80,000 point reads while writing, you take the cache back off and you do not argue. The box has to follow the ceiling.
 
 The body bytes are not why the primary melts. The primary does not store them. Caching the 10 KB body in this box would be a different break (origin bandwidth, day 15). Today you cache the **row you use to decide**.
 
@@ -161,7 +161,7 @@ flowchart TB
 
 **Why not the alternatives.** A bigger primary spends money on a ceiling you will hit again when the read ratio moves, and it does not give you a place to absorb a hot key tomorrow. A replica can serve stale deletes if you read it for this path; that refusal is day 13, and you will not sneak the replica in as "the cache." Write-through fills entries nobody reads and still needs the delete path. It does not remove the race; it moves it.
 
-**10× break.** Peak reads ~174,000. Even a 90% hit rate, which you must not invent today as a silent factor, leaves ~17,000 misses. That is the entire primary ceiling again. At 10× the cache is necessary and not sufficient; you will need the hit rate stated in the open (day 21) and a plan for the miss storm (day 11). A 60 second TTL at 10× also means a deleted viral paste can be served from a stale entry to a much larger audience. The tombstone matters more as the site gets bigger, not less.
+**10× break.** Peak reads ~174,000. Even a 90% hit rate, which you must not invent today as a silent factor, leaves 174,000 × 0.10 = 17,400 misses. That is the whole peak again, and it is over the 15,000 ceiling. At 10× the cache is necessary and not sufficient; you will need the hit rate stated in the open (day 21) and a plan for the miss storm (day 11). A 60 second TTL at 10× also means a deleted viral paste can be served from a stale entry to a much larger audience. The tombstone matters more as the site gets bigger, not less.
 
 ## Talking points
 
