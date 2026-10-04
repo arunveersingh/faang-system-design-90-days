@@ -4,7 +4,7 @@ The log is the artifact. There is no certificate.
 
 One entry per mock, and any lesson day you want to keep. Write it from **your** attempt. If you write it after reading the reference, you are logging the lesson, not yourself.
 
-Use [TEMPLATE.md](TEMPLATE.md). Copy it to a private place (a gist you do not link, a folder outside this clone, a branch you do not push). This repo only ships the template. A public push of real writeups is optional and usually a bad idea: they are your gaps, not the course.
+Use [TEMPLATE.md](TEMPLATE.md). Copy it into private notes. This site only ships the template. Do not commit your writeups here: they are your gaps, not the course.
 
 ## What goes in
 

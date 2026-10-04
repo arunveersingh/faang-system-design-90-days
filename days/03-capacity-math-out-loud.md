@@ -1,3 +1,6 @@
+<!-- day-nav -->
+[← Day 2 — Vague prompt to requirements](02-vague-prompt-to-requirements.md) · [Day 4 — API and data model first →](04-api-and-data-model-first.md)
+
 # Day 3 — Capacity math out loud
 
 ## Time box
@@ -214,3 +217,8 @@ Write your own second row tonight for the retention mix. That is the exercise, n
 Record the line you got wrong on the attempt, and whether it was arithmetic or a different assumption. One gap. If you got the table right and could not say which limit it threatens, the gap is the limit, not the multiplication.
 
 Next: [Day 4 — API and data model first](04-api-and-data-model-first.md).
+
+---
+
+<!-- day-nav -->
+[← Day 2 — Vague prompt to requirements](02-vague-prompt-to-requirements.md) · [Day 4 — API and data model first →](04-api-and-data-model-first.md)

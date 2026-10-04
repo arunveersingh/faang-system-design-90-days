@@ -1,10 +1,12 @@
 # Curriculum
 
+> **This is the map, not today's lesson.** Days 1–7 are written. Start at [Day 1](days/01-what-the-interview-is-grading.md). Days 8–90 are titles until a page exists.
+
 Interview-depth system design for senior and staff loops. One day, one sitting. Pure distributed systems: no AI or ML lessons.
 
 This file is the 90-day assignment list, adapted from the course topic list for this repo. **Phase 1 (days 1–7) is written** under `days/`. Days 8–90 are assigned below and are not in the repo yet. Do not treat a title as a lesson until a page exists.
 
-Prompt pages under [`prompts/`](prompts/README.md) are the live bank. If Arunveer or the team updates a prompt, **the prompt file wins** over a title here. Pull before a mock.
+Prompt pages under [`prompts/`](prompts/README.md) are the live bank. If Arunveer or the team updates a prompt, **the prompt file wins** over a title here. Read the prompt page on this site before a mock.
 
 Appendices at the bottom are **open**: optional, not part of the 90 days, and not a substitute for a mock. The notes here are the whole appendix until a loop is actually on the calendar. Pointers: [`appendices/README.md`](appendices/README.md).
 

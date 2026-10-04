@@ -1,3 +1,6 @@
+<!-- day-nav -->
+[← Day 5 — One box, and why it breaks](05-one-box-and-why-it-breaks.md) · [Day 7 — Timed dry run (pastebin) →](07-timed-dry-run-pastebin.md)
+
 # Day 6 — A diagram that survives
 
 ## Time box
@@ -277,3 +280,8 @@ If your memory redraw is missing the read-path branch, that is what you practice
 After the closed-book redraw: which of the six you could not reproduce, in one sentence. That is the gap. Do not log "I should review diagrams."
 
 Next: [Day 7 — Timed dry run](07-timed-dry-run-pastebin.md). On day 7 you do not open this page.
+
+---
+
+<!-- day-nav -->
+[← Day 5 — One box, and why it breaks](05-one-box-and-why-it-breaks.md) · [Day 7 — Timed dry run (pastebin) →](07-timed-dry-run-pastebin.md)

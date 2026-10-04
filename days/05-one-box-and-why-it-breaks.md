@@ -1,3 +1,6 @@
+<!-- day-nav -->
+[← Day 4 — API and data model first](04-api-and-data-model-first.md) · [Day 6 — A diagram that survives →](06-a-diagram-that-survives.md)
+
 # Day 5 — One box, and why it breaks
 
 ## Time box
@@ -231,3 +234,8 @@ One trade-off card row. The card is the kit, later. The row is what you practice
 One sentence: the first limit you wrote down on the attempt, and whether it was actually QPS. If it was QPS, the gap is the restore and inode limit. If you already had durability but acked before fsync, that is the gap instead.
 
 Next: [Day 6 — A diagram that survives](06-a-diagram-that-survives.md).
+
+---
+
+<!-- day-nav -->
+[← Day 4 — API and data model first](04-api-and-data-model-first.md) · [Day 6 — A diagram that survives →](06-a-diagram-that-survives.md)
