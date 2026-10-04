@@ -1,11 +1,11 @@
-# Prompt bank
+# Problem bank
 
-Closed-book prompts live here, one file per mock. A prompt file is the interviewer: a vague product, a time box, and nothing else. No requirements, no numbers, no diagram, no hint about which component to use.
+This folder is the problem bank. The directory is still named `prompts/` so existing links keep working. Closed-book problems live here, one file per mock. A problem file is the interviewer: a vague product, a time box, and nothing else. No requirements, no numbers, no diagram, no hint about which component to use.
 
 ## Rules
 
 - Pull this directory before a mock. If a file here disagrees with a title in [CURRICULUM.md](../CURRICULUM.md), **this file wins**.
-- Do not add "clarifications" to a prompt file after you have seen the lesson. That is how a closed book becomes an open book.
+- Do not add "clarifications" to a problem file after you have seen the lesson. That is how a closed book becomes an open book.
 - Week 1 is the exception that installs the method. Days 1–6 use the pastebin as the worked example. Day 7's closed-book card is the same product, on purpose. From day 28 on, the mock must not be that week's lesson topic.
 - Day 28's card is in this directory. Later cards are not, until a page exists. Do not invent a private substitute and treat it as canonical.
 

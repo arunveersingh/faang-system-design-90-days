@@ -3,6 +3,13 @@
 
 # Day 28 — Mock: image upload and thumbnails
 
+**Do now**
+
+1. Set a timer.
+2. Attempt the problem. Stop at the attempt barrier.
+3. Then read.
+
+
 ## Time box
 
 35 minutes for the attempt, then 10 minutes to score and log. The 10 minutes are not part of the interview clock. Do not use them to keep designing.
@@ -14,7 +21,7 @@ Facing an interview problem that is not the pastebin, leave able to design image
 ## How to run
 
 - Blank paper. No notes, no days 8–27, no search, no chat.
-- The only card you may have open is [prompts/image-upload.md](../prompts/image-upload.md). It does not help you.
+- The only card you may have open is the [image-upload problem](../prompts/image-upload.md) in the problem bank (`prompts/`). It does not help you.
 - Do not scroll past the attempt barrier. The rubric is above the barrier so you can score. The design is below it.
 - This is not a pastebin. If you notice yourself saying "10 million pastes," stop and pick numbers for images.
 - Timer visible. At zero you stop, even mid-arrow.
@@ -119,13 +126,18 @@ When the timer stops:
 
 You are about to read a reference design for image upload and thumbnails.
 
-If your timer has not hit zero, go back up. If your design log is not filled, go back up. The reference will look like the pastebin with the nouns swapped. It is not. The sizes, the async work, and the "not ready" state are the point. Use it for one amendment line. Do not edit the scores.
+If your timer has not hit zero, go back up. If your design log is not filled, go back up. Below is a reference, not a renamed pastebin. Use it for one amendment line. Do not edit the scores.
 
 ---
 
 ## Reference design
 
 One legal design, at interview depth. Yours can differ and still be a 3. It is not a 3 if the original lives only on the app's disk, if every view hits the primary, or if the upload request does the resize.
+
+### What transfers
+
+This is not the pastebin with the nouns swapped. **Bytes, not QPS.** About 12 uploads a second is a small number; about 2 TB a day of originals, and one 20 MB object fetched hard enough to be ~32 Gbit/s, is the design. **201 before thumbs.** The ack waits until the original is in the bucket and the row has committed. Resize is not on that path. **Public 404 versus the owner.** A viewer who fetches a thumb that is not built yet gets the same 404 as an unknown id. The owner, holding the token, reads status and can see not-ready or failed. Do not reuse 17,400 reads of 10 KB as this product's bottleneck.
+
 
 ### Requirements
 
@@ -217,6 +229,10 @@ Primary down: uploads stop (no commit). Views of cached metadata and CDN hits co
 ### What you did not need
 
 A pastebin's 17,400 reads/s of 10 KB. A search index. A GPU. A second queue for "image events" nobody consumes. Sticky sessions. Caching the 20 MB original on the app.
+
+## Say this in the room
+
+Uploads are about 12 a second, and the bytes are the story: about 2 TB a day, not a read-QPS problem copied from the pastebin. I return 201 once the original is durable, and the three thumbnails run after, on a job that is safe to do twice. A public fetch of a thumb that is not ready is a 404, the same body as missing, so a stranger learns nothing. The owner polls status with the token and can see not-ready or failed. If the bucket is down, upload is 503 and a warm edge can still serve; that is not a 404.
 
 ### After you read this
 

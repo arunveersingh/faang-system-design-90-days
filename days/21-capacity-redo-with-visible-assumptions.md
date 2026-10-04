@@ -3,6 +3,13 @@
 
 # Day 21 — Capacity redo with visible assumptions
 
+**Do now**
+
+1. Set a timer.
+2. Attempt the problem. Stop at the attempt line. Do not scroll.
+3. Then read.
+
+
 ## Time box
 
 40 minutes. Stop at 40 even if a product is unfinished.
@@ -40,72 +47,6 @@ Write:
 
 ---
 
-## Requirements
-
-The contract and the week-1 locks do not move. Hit rate is not a requirement the interviewer handed you. It is an assumption you are adding, and day 3 called an invented hit rate a stacked safety factor when you used it to **avoid** a cache. You now have the cache and the edge. Using a hit rate to size what is behind them is legitimate **if the zero-hit column still has an answer.** If the only column that works is 95%, you do not have a design. You have a wish.
-
-Decimal units, same as day 3. No second hidden 2×.
-
-## Design by arithmetic
-
-### Out loud
-
-"Same front door as day 3. 116 writes a second average, 350 peak. 5,800 reads average, 17,400 peak. 100 GB a day in, 4.5 TB resident, peak user-facing egress 174 MB/s, about 1.4 Gbit/s. Those numbers are the readers and the bytes. They are not automatically the QPS of the primary anymore.
-
-I am assuming, and I will instrument, a **95% CDN hit rate** on public GETs. I am assuming a **90% metadata-cache hit rate** on the GETs that still reach the origin. Both are assumptions. The cold-start column sets them to zero.
-
-Origin peak reads: 17,400 × 0.05 = **870/s**. Primary peak reads, if nine out of ten of those are cache hits: 870 × 0.10 = **87/s**. Bucket GETs are the origin reads, not the primary reads, because a metadata hit still needs the body unless the edge had it. At 95% edge hit, the bucket sees **870 GETs/s** peak. Times 10 KB is about **8.7 MB/s**. The 1.4 Gbit/s did not disappear. It moved to the CDN. I am trusting the CDN's capacity for that, and I said so on day 15.
-
-If the edge hit rate is zero, origin reads are 17,400/s again and bucket bandwidth is 174 MB/s again. The metadata cache at 90% would still keep the primary near 1,740/s, which is under the 15,000 ceiling. If the metadata cache is also cold, the primary sees 17,400 and I am over the ceiling I used on day 10. That is not a surprise. That is the shed on day 19 and the reason singleflight exists. I do not get to quote 87 reads a second as 'the load' without the other column.
-
-Creates did not get a hit rate. Every create still PUTs and still inserts. Peak **350 PUTs/s**, about 3.5 MB/s, and **350 commits/s**. The replica ships that WAL asynchronously. Cleanup jobs are about 116/s average, not a second copy of the read path.
-
-Fan-out, cold origin read: one cache get, one primary get, one bucket GET. Three downstream calls, one user request. I must not multiply 17,400 by three and call it QPS unless the edge and the cache both missed. Fan-out, create, user-visible: one limiter check, one PUT, one insert. The user waits for the PUT and the insert. Purge is not on this path.
-
-Cache RAM: I assume the hot metadata set is about **1% of live rows**, 4.5 million entries, a few hundred bytes each, about **2 GB** with overhead. Four cache nodes hold that easily. The ring was for membership, not because 2 GB does not fit. If I had cached bodies, 1% of 4.5 TB is 45 TB, which is why bodies are not in that cache.
-
-The assumption I instrument first is now the **CDN hit rate**, not the mean body size. Mean body size still multiplies every byte column, and it is still the one I fear for the bucket bill. But the QPS story I just told is wrong by 20× if the edge is bypassed, and only by 2× if the mean object is 20 KB. Different knobs. I will not bury the hit rate inside a single QPS figure."
-
-### Check table
-
-| Quantity | Expression | At the assumptions | If both hit rates are 0 |
-|---|---|---|---|
-| User read QPS, peak | 5,800 × 3 | 17,400 | 17,400 |
-| Origin read QPS, peak | 17,400 × (1 − 0.95) | **870** | **17,400** |
-| Primary read QPS, peak | 870 × (1 − 0.90) | **87** | **17,400** |
-| Bucket GET, peak | origin reads × 10 KB | **870/s, ~8.7 MB/s** | **17,400/s, 174 MB/s** |
-| User egress, peak | unchanged | ~1.4 Gbit/s, at the CDN | ~1.4 Gbit/s, at the origin |
-| PUT, peak | 350 × 10 KB | **350/s, ~3.5 MB/s** | same |
-| Primary commits, peak | creates + deletes | ~350 creates, and deletes in the same order when full | same |
-| Cleanup jobs | ~116/s average | queue, not the user path | same |
-| Metadata resident | unchanged | ~135 GB, plus a replica | same |
-| Bodies resident | unchanged | 4.5 TB in the bucket | same |
-| Cache RAM | 1% × 450e6 × ~400 B | **~2 GB** assumption | cold: ~0 until it fills |
-
-Primary reads with edge cold and metadata hot: 17,400 × 0.10 = **1,740/s**. Still fine. The dangerous cell is the bottom of the hit-rate stack, not the average paste.
-
-### Fan-out, written so you cannot skip it
-
-| User call | Downstream calls they wait on | Calls that may happen after the response |
-|---|---|---|
-| GET, edge hit | none on your origin | none |
-| GET, edge miss, metadata hit | cache get, bucket GET | none |
-| GET, both miss | cache get, primary get, bucket GET | cache fill |
-| POST | limiter, PUT, primary insert | none for correctness |
-| DELETE | primary delete, tombstone, outbox row | object delete, CDN purge |
-
-A fan-out of three on the cold GET is not three times the storage. It is three round trips inside the 300 ms budget from day 20. 5 ms + 20 ms + 200 ms fits. If you add a retry, it does not. You already refused that retry.
-
-Deletes at steady state match creates, about 116/s average. Each becomes one commit plus one queued detach. Do not add 116 to the primary **read** column. Do add them to commits if you are sizing WAL. Peak write commits stay in the few hundreds unless deletes burst; a scripted delete of a backlog is the sweeper, batched, which you already keep off the user path.
-
-### What you will not do with these numbers
-
-You will not go back and delete the CDN because the primary only sees 87 reads a second. The CDN is why. Removing it is the right-hand column.
-
-You will not quote 87 as the capacity plan on a slide without the assumption beside it. Day 3's rule still holds: a number nobody can invert is hand-waving.
-
-You will not add another cache tier "because fan-out." Three calls on a miss, at 87 misses a second peak under the assumption, is idle. Another tier needs a break.
-
 ## Diagrams
 
 ### Where a peak read goes
@@ -132,33 +73,86 @@ flowchart TB
   zero --> shed[Shed and singleflight, not a new QPS]
 ```
 
+## Requirements
+
+The contract and the week-1 locks do not move. Hit rate is not a requirement the interviewer handed you. It is an assumption you are adding, and day 3 called an invented hit rate a stacked safety factor when you used it to **avoid** a cache. You now have the cache and the edge. Using a hit rate to size what is behind them is legitimate **if the zero-hit column still has an answer.** If the only column that works is 95%, you do not have a design. You have a wish.
+
+Decimal units, same as day 3. No second hidden 2×.
+
+## Design by arithmetic
+
+### Out loud
+
+"Same front door as day 3. 116 writes a second average, 350 peak.
+
+I am assuming, and I will instrument, a **95% CDN hit rate** on public GETs. I am assuming a **90% metadata-cache hit rate** on the GETs that still reach the origin.
+
+Origin peak reads: 17,400 × 0.05 = **870/s**. Primary peak reads, if nine out of ten of those are cache hits: 870 × 0.10 = **87/s**.
+
+If the edge hit rate is zero, origin reads are 17,400/s again and bucket bandwidth is 174 MB/s again. The metadata cache at 90% would still keep the primary near 1,740/s, which is under the 15,000 ceiling.
+
+Creates did not get a hit rate. Peak **350 PUTs/s**, about 3.5 MB/s, and **350 commits/s**.
+
+Fan-out, cold origin read: one cache get, one primary get, one bucket GET. I must not multiply 17,400 by three and call it QPS unless the edge and the cache both missed.
+
+Cache RAM: I assume the hot metadata set is about **1% of live rows**, 4.5 million entries, a few hundred bytes each, about **2 GB** with overhead. The ring was for membership, not because 2 GB does not fit.
+
+The assumption I instrument first is now the **CDN hit rate**, not the mean body size. But the QPS story I just told is wrong by 20× if the edge is bypassed, and only by 2× if the mean object is 20 KB.
+
+### Check table
+
+| Quantity | Expression | At the assumptions | If both hit rates are 0 |
+|---|---|---|---|
+| User read QPS, peak | 5,800 × 3 | 17,400 | 17,400 |
+| Origin read QPS, peak | 17,400 × (1 − 0.95) | **870** | **17,400** |
+| Primary read QPS, peak | 870 × (1 − 0.90) | **87** | **17,400** |
+| Bucket GET, peak | origin reads × 10 KB | **870/s, ~8.7 MB/s** | **17,400/s, 174 MB/s** |
+| User egress, peak | unchanged | ~1.4 Gbit/s, at the CDN | ~1.4 Gbit/s, at the origin |
+| PUT, peak | 350 × 10 KB | **350/s, ~3.5 MB/s** | same |
+| Primary commits, peak | creates + deletes | ~350 creates, and deletes in the same order when full | same |
+| Cleanup jobs | ~116/s average | queue, not the user path | same |
+| Metadata resident | unchanged | ~135 GB, plus a replica | same |
+| Bodies resident | unchanged | 4.5 TB in the bucket | same |
+| Cache RAM | 1% × 450e6 × ~400 B | **~2 GB** assumption | cold: ~0 until it fills |
+
+Primary reads with edge cold and metadata hot: 17,400 × 0.10 = **1,740/s**. Still fine.
+
+### Fan-out, written so you cannot skip it
+
+| User call | Downstream calls they wait on | Calls that may happen after the response |
+|---|---|---|
+| GET, edge hit | none on your origin | none |
+| GET, edge miss, metadata hit | cache get, bucket GET | none |
+| GET, both miss | cache get, primary get, bucket GET | cache fill |
+| POST | limiter, PUT, primary insert | none for correctness |
+| DELETE | primary delete, tombstone, outbox row | object delete, CDN purge |
+
+A fan-out of three on the cold GET is not three times the storage. It is three round trips inside the 300 ms budget from day 20.
+
+Deletes at steady state match creates, about 116/s average. Do not add 116 to the primary **read** column.
+
+### What you will not do with these numbers
+
+You will not go back and delete the CDN because the primary only sees 87 reads a second. The CDN is why.
+
+You will not quote 87 as the capacity plan on a slide without the assumption beside it. Day 3's rule still holds: a number nobody can invert is hand-waving.
+
+You will not add another cache tier "because fan-out." Three calls on a miss, at 87 misses a second peak under the assumption, is idle. Another tier needs a break.
+
+
 ## Trade-offs
 
-**Choice.** Quote both columns. Size the CDN for the full 1.4 Gbit/s. Size the origin to **survive** the zero-hit column by shedding, not to **enjoy** it. Use 95% and 90% only to say what you expect on a normal day, and instrument both.
-
-**Alternative.** One number, "the database sees about a hundred QPS," with the hit rate implied.
+**Choice.** Quote both columns. Size the CDN for the full 1.4 Gbit/s. Use 95% and 90% only to say what you expect on a normal day, and instrument both.
 
 **What you give up.** Four extra minutes, and an interviewer who thinks you are not confident because you showed the ugly column. You can live with that. The ugly column is how you know day 19's caps are still required after a week of adding boxes.
 
 **What the single number gives up.** Checkability. If the edge is bypassed (a client that adds a cache-buster, a purge of the world, a new region of the CDN that is empty), your hundred QPS becomes 17,400 and you have no plan except surprise.
 
-**10× break.** User peak reads ~174,000. At the same hit rates, origin is ~8,700/s and the primary is ~870/s. Creates are ~3,500 commits/s. The read math still looks easy **at the same hit rates**. The write math does not, and it never had a hit rate to hide behind. That is the handoff to day 24: the first component that breaks at 10×, if these assumptions hold, is the primary's **commits**, not the CDN and not the cache. If the assumptions do not hold, the origin NIC is the break, same as day 3. You now have two different 10× stories, and you must say which assumption picks between them.
+**10× break.** User peak reads ~174,000. At the same hit rates, origin is ~8,700/s and the primary is ~870/s. Creates are ~3,500 commits/s.
 
-## Talking points
+## Say this in the room
 
-**Say.** "Day 3's peak still stands at the front door: 17,400 reads, 1.4 Gbit/s, 350 writes. I assume 95% of GETs hit the CDN and 90% of what remains hits the metadata cache. That is about 870 origin reads and about 87 primary reads at peak, and about 8.7 MB/s off the bucket. If both rates are zero, the primary sees 17,400 and I shed. I instrument the hit rates before I trust 87 for anything operational. Creates are still 350 PUTs and 350 commits. No hit rate applies."
-
-**Say.** "A cold read is three calls, and they have to fit in 300 ms. I do not multiply all user traffic by three. Most user traffic should never reach me."
-
-**Hand-waving.** "The cache handles it." At which hit rate, and what is the QPS when the cache is empty?
-
-**Hand-waving.** "Fan-out is fine, it's O(1)." O(1) with a 2 second timeout is a stuck slot. The constant is the budget.
-
-**Hand-waving.** "95% is industry standard." It is an assumption you picked. A pastebin whose links are fetched once has a hit rate near zero. Your 50:1 read ratio is what makes 95% plausible, and it is itself an assumption from day 2. If they cut the read ratio to 1:1, take the CDN justification back to the hot-key cap only, and recompute. Do not keep 95% out of habit.
-
-**If they challenge 95%.** Good. Drop it to 80% in your head: origin peak is 20% × 17,400 = 3,480, primary at 90% meta hit is 348. Still fine. At 0% you already have a column. The design does not flip between 80 and 95. It flips between "edge works" and "edge does not."
-
-**If they ask what you page on.** CDN hit rate below the assumption by a wide margin at peak. Metadata hit rate the same. Primary read QPS, which should be near the low column and is an incident if it looks like the high column. Bucket GET bandwidth. These are the assumptions becoming false, which is the only page that matches this day.
+Day 3's peak still stands at the front door: 17,400 reads, 1.4 Gbit/s, 350 writes. I assume 95% of GETs hit the CDN and 90% of what remains hits the metadata cache. That is about 870 origin reads and about 87 primary reads at peak, and about 8.7 MB/s off the bucket. If both rates are zero, the primary sees 17,400 and I shed. I instrument the hit rates before I trust 87 for anything operational.
 
 ## Kit artifact
 

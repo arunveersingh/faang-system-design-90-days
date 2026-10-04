@@ -1,25 +1,27 @@
 # Start here
 
-You read this course like a book, in the browser. No clone. No fork. Nothing to install. Open a day and work.
+**Do now**
 
-**What to do today:** [Day 1 — What the interviewer is grading](days/01-what-the-interview-is-grading.md).
+1. Set a timer.
+2. Attempt the problem on [Day 1](days/01-what-the-interview-is-grading.md). Do not scroll past the attempt line.
+3. Then read.
 
-Budget **40 minutes**. Attempt before you read. Stop at 40 even if you are mid-sentence. The cap is the practice.
+You read this in the browser. No clone. No install. One sitting is 30–40 minutes. Stop at 40 even if you are mid-sentence.
 
-1. Open Day 1. Read the time box and the problem only.
-2. Stop at **Attempt before reading**. Work on paper. Do not scroll.
-3. Then read the rest of the page.
-4. Close it and say the hour back, from memory.
-5. Notes go in a private design log. This site does not store them, and they are not a shared checklist.
+## Four doors
 
-The log is yours. The [template](design-log/TEMPLATE.md) is only a shape. Copy it into your own notes. Do not fill it in on this site.
+**[Start](START.md)** — This page. Open a day and work. The design log stays in your notes, not on this site.
 
-Days 1–28 are written (Phase 1 and Phase 2). The [curriculum](CURRICULUM.md) is the map of all 90 days, not today's lesson. Do not skip ahead.
+**[How to study](HOW-TO-STUDY.md)** — Attempt the problem, then read, then say the hour back.
 
-The ritual, one page: [How to study](HOW-TO-STUDY.md). A list you can print: [checklist](CHECKLIST.md). Ticks stay on paper or in your notes. They are not saved here.
+**[Day 1](days/01-what-the-interview-is-grading.md)** — What the interviewer is grading. This is today's lesson.
 
-SVG diagrams are coming. Until then, figures in the lessons are mermaid or ASCII you could put on a whiteboard.
+**[Checklist](CHECKLIST.md)** — Days 1–28 on paper. A tick in the browser is not saved.
+
+Days 1–28 are written. Days 29–90 are coming and are not links, so there is nothing empty to open. The [curriculum](CURRICULUM.md) is the map, not today's lesson.
+
+The log is yours. The [template](design-log/TEMPLATE.md) is only a shape. Copy it into your own notes.
+
+Whiteboard figures are SVG on days 1–3 and 8–10. The other days use mermaid you can redraw. Search sits in the corner of the book.
 
 The interview kit is sold separately. It is not required to start, and it is not part of this book.
-
-[Day 1 →](days/01-what-the-interview-is-grading.md)

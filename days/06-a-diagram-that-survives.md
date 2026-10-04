@@ -3,6 +3,13 @@
 
 # Day 6 — A diagram that survives
 
+**Do now**
+
+1. Set a timer.
+2. Attempt the problem. Stop at the attempt line. Do not scroll.
+3. Then read.
+
+
 ## Time box
 
 35 minutes.
@@ -239,11 +246,15 @@ If they want a second failure, take a new sketch. The good second one is **the p
 
 **Choice.** Six sparse pictures, overlays kept off the base whiteboard.
 
+
 **Alternative.** One comprehensive diagram with cache, replica, object storage, the sweeper, metrics, and TLS all at once.
+
 
 **What you give up.** A single artifact you could hand to a new hire as "the architecture." This is an interview, not a design doc. You give up completeness in the first picture.
 
+
 **What you get.** Any question maps to one picture. You can redraw under pressure. You do not defend a CDN you only drew because there was space on the page.
+
 
 **10× break.** The scale overlay is the break, and it stays an overlay: ~14 Gbit/s against one NIC, ~174k reads/s against one metadata primary, ~45 TB and billions of objects against the restore story you already told at 1×. If the 10× sketch replaces your whiteboard, you will be unable to answer a question about today's ack path, because the ack path is now smeared across tiers you added for a hypothetical. Keep both pictures.
 

@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 240" role="img" aria-label="Cache-aside on metadata: hit returns, miss reads the primary then fills">
+  <rect width="780" height="240" fill="#fffef8"/>
+  <defs>
+    <marker id="a" markerWidth="12" markerHeight="12" refX="10" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 Z" fill="#1c1917"/>
+    </marker>
+  </defs>
+
+  <rect x="20" y="86" width="120" height="56" fill="#fffef8" stroke="#1c1917" stroke-width="3" rx="8"/>
+  <text x="80" y="120" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="18" font-weight="700" fill="#1c1917">Reader</text>
+  <line x1="140" y1="114" x2="200" y2="114" stroke="#1c1917" stroke-width="4" marker-end="url(#a)"/>
+  <rect x="208" y="80" width="110" height="68" fill="#fffef8" stroke="#1c1917" stroke-width="3" rx="8"/>
+  <text x="263" y="120" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="18" font-weight="700" fill="#1c1917">App</text>
+  <line x1="318" y1="100" x2="400" y2="60" stroke="#1c1917" stroke-width="4" marker-end="url(#a)"/>
+  <rect x="408" y="24" width="200" height="70" fill="#fffef8" stroke="#1c1917" stroke-width="3" rx="8"/>
+  <text x="508" y="54" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="18" font-weight="700" fill="#1c1917">Cache</text>
+  <text x="508" y="76" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#1c1917">metadata only</text>
+  <line x1="430" y1="94" x2="360" y2="140" stroke="#1c1917" stroke-width="4" marker-end="url(#a)"/>
+  <text x="360" y="108" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" font-weight="700" fill="#1c1917">hit</text>
+  <line x1="508" y1="94" x2="508" y2="150" stroke="#1c1917" stroke-width="4" marker-end="url(#a)"/>
+  <text x="518" y="130" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" font-weight="700" fill="#1c1917">miss</text>
+  <rect x="408" y="156" width="200" height="60" fill="#fffef8" stroke="#1c1917" stroke-width="3" rx="8"/>
+  <text x="508" y="192" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="18" font-weight="700" fill="#1c1917">Primary</text>
+
+</svg>

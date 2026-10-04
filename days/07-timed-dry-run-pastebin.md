@@ -3,6 +3,13 @@
 
 # Day 7 — Timed dry run (pastebin)
 
+**Do now**
+
+1. Set a timer.
+2. Attempt the problem. Stop at the attempt barrier.
+3. Then read.
+
+
 ## Time box
 
 35 minutes for the attempt, then 10 minutes to score and log. The 10 minutes are not part of the interview clock. Do not use them to keep designing.

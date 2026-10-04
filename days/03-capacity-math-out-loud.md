@@ -1,7 +1,15 @@
 <!-- day-nav -->
-[← Day 2 — Vague prompt to requirements](02-vague-prompt-to-requirements.md) · [Day 4 — API and data model first →](04-api-and-data-model-first.md)
+[← Day 2 — Vague problem to requirements](02-vague-prompt-to-requirements.md) · [Day 4 — API and data model first →](04-api-and-data-model-first.md)
 
 # Day 3 — Capacity math out loud
+
+**Do now**
+
+1. Set a timer.
+2. Attempt the problem. Stop at the attempt line. Do not scroll.
+3. Then read.
+
+![Whiteboard: 10 million creates a day becomes 116 writes a second, 17,400 peak reads, and 4.5 TB](assets/day-03-capacity.svg)
 
 ## Time box
 
@@ -176,11 +184,15 @@ The left edges are today's locks or the 10× column. The right edges are limits.
 
 **Choice.** Quote average and peak. Design durability for the **peak write** rate and the **resident byte** total. Design egress for the **peak read** byte rate. Do not design for the average and mention peak as a footnote.
 
+
 **Alternative.** One number, "roughly 10k QPS," used as both read and write, average and peak.
+
 
 **What you give up.** The estimate takes four minutes and sounds pedantic. You will be slightly wrong (the true average is 115.7, not 116).
 
+
 **What you refuse to give up.** Checkability. Anyone in the room can divide 10 million by 86,400 and catch you.
+
 
 **10× break.** Named above: one NIC at ~14 Gbit/s, and a metadata primary you should not promise at ~174k point reads/s. Group commit is what keeps the write path honest before you ever get to 10×, because 350 already misses a 200/s serial fsync ceiling. The break is specific. "We'd shard" is not a break; it is a tactic you have not aimed.
 
@@ -221,4 +233,4 @@ Next: [Day 4 — API and data model first](04-api-and-data-model-first.md).
 ---
 
 <!-- day-nav -->
-[← Day 2 — Vague prompt to requirements](02-vague-prompt-to-requirements.md) · [Day 4 — API and data model first →](04-api-and-data-model-first.md)
+[← Day 2 — Vague problem to requirements](02-vague-prompt-to-requirements.md) · [Day 4 — API and data model first →](04-api-and-data-model-first.md)

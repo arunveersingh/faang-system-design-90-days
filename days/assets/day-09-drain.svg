@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 260" role="img" aria-label="Balancer sends new work to healthy apps and none to the one draining">
+  <rect width="780" height="260" fill="#fffef8"/>
+  <defs>
+    <marker id="a" markerWidth="12" markerHeight="12" refX="10" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 Z" fill="#1c1917"/>
+    </marker>
+  </defs>
+
+  <rect x="24" y="96" width="120" height="56" fill="#fffef8" stroke="#1c1917" stroke-width="3" rx="8"/>
+  <text x="84" y="130" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="18" font-weight="700" fill="#1c1917">Clients</text>
+  <line x1="144" y1="124" x2="200" y2="124" stroke="#1c1917" stroke-width="4" marker-end="url(#a)"/>
+  <rect x="208" y="90" width="140" height="68" fill="#fffef8" stroke="#1c1917" stroke-width="3" rx="8"/>
+  <text x="278" y="130" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="18" font-weight="700" fill="#1c1917">Balancer</text>
+  <line x1="348" y1="110" x2="430" y2="48" stroke="#1c1917" stroke-width="4" marker-end="url(#a)"/>
+  <line x1="348" y1="124" x2="430" y2="110" stroke="#1c1917" stroke-width="4" marker-end="url(#a)"/>
+  <line x1="348" y1="140" x2="430" y2="176" stroke="#1c1917" stroke-width="4" marker-end="url(#a)"/>
+  <rect x="438" y="20" width="120" height="52" fill="#fffef8" stroke="#1c1917" stroke-width="3" rx="8"/>
+  <text x="498" y="52" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="18" font-weight="700" fill="#1c1917">App</text>
+  <rect x="438" y="86" width="120" height="52" fill="#fffef8" stroke="#1c1917" stroke-width="3" rx="8"/>
+  <text x="498" y="118" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="18" font-weight="700" fill="#1c1917">App</text>
+  <rect x="438" y="152" width="120" height="52" fill="#fffef8" stroke="#1c1917" stroke-width="3" rx="8"/>
+  <text x="498" y="184" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="18" font-weight="700" fill="#1c1917">App</text>
+  <rect x="600" y="96" width="150" height="64" fill="#fffef8" stroke="#1c1917" stroke-width="3" stroke-dasharray="8 6" rx="8"/>
+  <text x="675" y="124" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" font-weight="700" fill="#1c1917">Draining</text>
+  <text x="675" y="144" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#1c1917">no new work</text>
+
+</svg>

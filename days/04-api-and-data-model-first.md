@@ -3,6 +3,13 @@
 
 # Day 4 — API and data model first
 
+**Do now**
+
+1. Set a timer.
+2. Attempt the problem. Stop at the attempt line. Do not scroll.
+3. Then read.
+
+
 ## Time box
 
 35 minutes.
@@ -243,11 +250,15 @@ The arrow order is the contract: bytes durable, then the row, then the response.
 
 **Choice.** Twelve-character base62 ids, never reused, unique primary key, remint on conflict.
 
+
 **Alternative.** An 8-character id, or a counter, or a vanity slug the user picked.
+
 
 **What you give up.** URLs are a bit longer and case-sensitive. You cannot have `paste.example/interview-tips` as a feature. Sequential ids would be shorter to log and easier to cursor, and you give that up too.
 
+
 **Why.** An 8-character random id collides under the live set you already computed, let alone under a decade of unreused mints. A counter is guessable: capability URLs that are guessable are a public listing with extra steps. A user-chosen slug is a second unique key, a squatting fight, and a hot key the user picked on purpose.
+
 
 **10× break.** Ten times the mint rate for ten years still leaves a handful of expected collisions at 12 characters, absorbed by the unique index. The id scheme does not break at 10×. What breaks at 10× is egress and metadata QPS (day 3), not the primary key. If you hear yourself redesigning the id at 10×, you are avoiding the NIC. Do the birthday arithmetic once, then stop.
 

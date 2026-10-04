@@ -1,7 +1,15 @@
 <!-- day-nav -->
-[← Start](../START.md) · [Day 2 — Vague prompt to requirements →](02-vague-prompt-to-requirements.md)
+[← Start](../START.md) · [Day 2 — Vague problem to requirements →](02-vague-prompt-to-requirements.md)
 
 # Day 1 — What the interviewer is grading
+
+**Do now**
+
+1. Set a timer.
+2. Attempt the problem. Stop at the attempt line. Do not scroll.
+3. Then read.
+
+![Whiteboard of the graded hour: scope, then numbers, then API, then one box, then what dies](assets/day-01-the-hour.svg)
 
 ## Time box
 
@@ -145,9 +153,12 @@ flowchart TB
 
 **Choice.** Spend the first ten minutes on scope and numbers. Do not open with a topology.
 
+
 **Alternative.** Start drawing "a standard web scale architecture" immediately, and backfill requirements if they ask.
 
+
 **What you give up by choosing scope first.** You might get cut off before the picture is pretty. A partial design with locked non-goals still scores. A pretty picture with no non-goals does not.
+
 
 **10× break.** Ten times the traffic does not make the opening move wrong. It asks which box dies. The candidate who drew a CDN, a cache, and a queue in minute 2 still cannot answer, because they never computed the byte rate those boxes were supposed to absorb. The 10× question punishes a tour harder than it punishes a small design. You will compute the actual break on day 3 and attach it to a box on day 5. Today the point is: you cannot name a 10× break you have not measured.
 
@@ -183,9 +194,9 @@ Copy [the template](../design-log/TEMPLATE.md) only if you want to keep today. M
 
 Prompt for today, five lines: the six signals you will actually practice, and one sentence you will stop saying in interviews. That sentence is the gap.
 
-Next: [Day 2 — Vague prompt to requirements](02-vague-prompt-to-requirements.md).
+Next: [Day 2 — Vague problem to requirements](02-vague-prompt-to-requirements.md).
 
 ---
 
 <!-- day-nav -->
-[← Start](../START.md) · [Day 2 — Vague prompt to requirements →](02-vague-prompt-to-requirements.md)
+[← Start](../START.md) · [Day 2 — Vague problem to requirements →](02-vague-prompt-to-requirements.md)

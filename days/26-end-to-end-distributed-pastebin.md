@@ -3,6 +3,13 @@
 
 # Day 26 — End-to-end distributed pastebin
 
+**Do now**
+
+1. Set a timer.
+2. Attempt the problem. Stop at the attempt line. Do not scroll.
+3. Then read.
+
+
 ## Time box
 
 40 minutes.
@@ -34,56 +41,6 @@ If you draw a box you cannot attach to a number or a fault, cross it out before 
 **Stop. The assembled pastebin is below. It is the phase, compressed, not a second design.**
 
 ---
-
-## Requirements
-
-Anonymous client sends UTF-8 text, at most 1,000,000 bytes, and a TTL from the allow-list (1, 7, 30, 365 days, default 30). Server returns an unguessable id, a URL, an expiry, and a delete token once. Anyone with the URL can read until expiry or delete. Expired, missing, and bad token are the same 404. A live row whose bytes are gone is a 500. The body is `text/plain` with `nosniff`. Creates are not idempotent.
-
-Assumptions, unchanged since day 2: 10 million new pastes a day, 50 reads per write, 10 KB mean, 3× peak, 45 days of ingest resident, one region.
-
-Out: accounts, listing, search, edit, vanity ids, rendering, forever retention, a second region, a classifier, a queue on the create path.
-
-## Estimates
-
-Speak day 3, then day 21. Do not skip the first just because the second is more impressive.
-
-116 writes/s average, ~350 peak. 5,800 reads/s average, 17,400 peak. 100 GB/day, 4.5 TB resident, ~450 million live objects, ~135 GB of metadata. Peak user egress ~1.4 Gbit/s.
-
-Hit rates, labeled as assumptions: 95% of GETs hit the CDN, 90% of what remains hit the metadata cache. Happy column: ~870 origin reads/s peak, ~87 primary reads/s, ~8.7 MB/s from the bucket. Zero column: the primary sees 17,400 and you shed. Every create is still a PUT and a commit. Peak ~350 commits/s. No hit rate on writes.
-
-Sensitive knobs: CDN hit rate for the read story, mean body size for the byte story.
-
-## API and data
-
-`POST /v1/pastes`, raw body, `201` only after durability. `GET` by id. `DELETE` with the token, `204` or the same `404`.
-
-One row, primary key the 12-character base62 id, never reused. `expires_at` checked on read and indexed for the sweeper. Delete token stored as a hash. Body not in the row. Object key `pastes/{id}` in a private bucket.
-
-Limiter: per IP, about 1 create/s and a byte budget, burst small, global create ceiling at the 350/s you sized, 429 before any PUT.
-
-## Design
-
-The boxes, each with the break that added it:
-
-| Box | Why it exists | Why it is not something else |
-|---|---|---|
-| App processes, four | Peak ~17,400 reads. Ceiling ~8,000 per process. One down must still clear peak: 3×8,000 = 24,000. Two do not meet the peak (16,000). Three fall through on a drain. | No session. Least connections. Drain on deploy. |
-| Primary Postgres | Point key plus expiry range. | Not a key-value store, because the sweeper is a range. |
-| Async replica | A dead primary disk must not take every row. | GETs do not read it. It does not have the bytes. |
-| Metadata cache, ring | Primary read ceiling ~15,000/s while it is also committing. | Not the body. Tombstone on delete. TTL is not invalidation. |
-| Private bucket | 450 million files will not restore, and one NVMe is one disk. | PUT, then commit, then 201. Orphans reaped after an age floor. |
-| CDN | A hot 1 MB paste, or 10× mean egress, does not fit one origin NIC. | GET only. Max-age min(60s, remaining TTL). Origin stays authoritative. |
-| Queue and outbox | Purge and object delete must not sit inside the user request. | Create is not on it. Jobs are safe twice because ids are never reused. |
-
-Caps, not new boxes: in-flight creates (50 per process, 32 MB), separate bucket pools, a cap on concurrent primary fills so one crawl cannot own the database, timeouts with no retry on timeout and no app retry of create.
-
-### Read, in one breath
-
-Edge hit returns the body and you see nothing. Edge miss: metadata cache, and on a miss the primary, never the replica. Expired or absent is 404, and the edge does not cache that 404. Live row, object missing, is 500. Live row, object present, is `text/plain`, and the edge may keep it for at most a minute.
-
-### Write, in one breath
-
-Limit, then validate, then PUT, then insert, then 201. Delete commits the row and the outbox, writes the tombstone, returns 204. A worker deletes the object and purges. Until then an edge may still be inside max-age.
 
 ## Diagrams
 
@@ -135,29 +92,68 @@ If you remember nothing else on the board, these four:
 
 An orphan is a PUT without a row. It is waste, reaped after an hour only if the row is still missing. It is not a 404 you serve. Say that if they touch create crashes. It is the deep dive you offer when they do not pick the id width.
 
+## Requirements
+
+Anonymous client sends UTF-8 text, at most 1,000,000 bytes, and a TTL from the allow-list (1, 7, 30, 365 days, default 30). Server returns an unguessable id, a URL, an expiry, and a delete token once. Anyone with the URL can read until expiry or delete. Expired, missing, and bad token are the same 404. A live row whose bytes are gone is a 500. The body is `text/plain` with `nosniff`. Creates are not idempotent.
+
+Assumptions, unchanged since day 2: 10 million new pastes a day, 50 reads per write, 10 KB mean, 3× peak, 45 days of ingest resident, one region.
+
+Out: accounts, listing, search, edit, vanity ids, rendering, forever retention, a second region, a classifier, a queue on the create path.
+
+## Estimates
+
+Speak day 3, then day 21. Do not skip the first just because the second is more impressive.
+
+116 writes/s average, ~350 peak. 5,800 reads/s average, 17,400 peak. 100 GB/day, 4.5 TB resident, ~450 million live objects, ~135 GB of metadata. Peak user egress ~1.4 Gbit/s.
+
+Hit rates, labeled as assumptions: 95% of GETs hit the CDN, 90% of what remains hit the metadata cache. Happy column: ~870 origin reads/s peak, ~87 primary reads/s, ~8.7 MB/s from the bucket. Zero column: the primary sees 17,400 and you shed. Every create is still a PUT and a commit. Peak ~350 commits/s. No hit rate on writes.
+
+Sensitive knobs: CDN hit rate for the read story, mean body size for the byte story.
+
+## API and data
+
+`POST /v1/pastes`, raw body, `201` only after durability. `GET` by id. `DELETE` with the token, `204` or the same `404`.
+
+One row, primary key the 12-character base62 id, never reused. `expires_at` checked on read and indexed for the sweeper. Delete token stored as a hash. Body not in the row. Object key `pastes/{id}` in a private bucket.
+
+Limiter: per IP, about 1 create/s and a byte budget, burst small, global create ceiling at the 350/s you sized, 429 before any PUT.
+
+## Design
+
+The boxes, each with the break that added it:
+
+| Box | Why it exists | Why it is not something else |
+|---|---|---|
+| App processes, four | Peak ~17,400 reads. Ceiling ~8,000 per process. One down must still clear peak: 3×8,000 = 24,000. Two do not meet the peak (16,000). Three fall through on a drain. | No session. Least connections. Drain on deploy. |
+| Primary Postgres | Point key plus expiry range. | Not a key-value store, because the sweeper is a range. |
+| Async replica | A dead primary disk must not take every row. | GETs do not read it. It does not have the bytes. |
+| Metadata cache, ring | Primary read ceiling ~15,000/s while it is also committing. | Not the body. Tombstone on delete. TTL is not invalidation. |
+| Private bucket | 450 million files will not restore, and one NVMe is one disk. | PUT, then commit, then 201. Orphans reaped after an age floor. |
+| CDN | A hot 1 MB paste, or 10× mean egress, does not fit one origin NIC. | GET only. Max-age min(60s, remaining TTL). Origin stays authoritative. |
+| Queue and outbox | Purge and object delete must not sit inside the user request. | Create is not on it. Jobs are safe twice because ids are never reused. |
+
+Caps, not new boxes: in-flight creates (50 per process, 32 MB), separate bucket pools, a cap on concurrent primary fills so one crawl cannot own the database, timeouts with no retry on timeout and no app retry of create.
+
+### Read, in one breath
+
+Edge hit returns the body and you see nothing. Expired or absent is 404, and the edge does not cache that 404.
+
+### Write, in one breath
+
+Limit, then validate, then PUT, then insert, then 201. Delete commits the row and the outbox, writes the tombstone, returns 204.
+
+
 ## Trade-offs
 
-**Choice.** This set, and no more. The create is synchronous. The edge is allowed to be wrong for at most 60 seconds after delete. The replica lags and is not a read source. The cache misses are correct because they hit the primary.
+**Choice.** This set, and no more. The edge is allowed to be wrong for at most 60 seconds after delete.
 
-**What you are giving up, said as a list you can speak.** Instant global delete. Create idempotency. Survival of a bucket outage for cold reads. A second region. A primary that can take 10× commits.
+**What you are giving up, said as a list you can speak.** Instant global delete. A primary that can take 10× commits.
 
-**The 10× break you volunteer before they ask.** If the hit rates hold, ~3,500 commits/s breaks a primary whose planning ceiling you put near 2,000. Next fix: bigger primary once, then partition by id, and redo the sweeper per partition. If the hit rates do not hold, the origin NIC breaks first at ~14 Gbit/s. You page on hit rate so you know which one you are in.
+**The 10× break you volunteer before they ask.** If the hit rates hold, ~3,500 commits/s breaks a primary whose planning ceiling you put near 2,000. If the hit rates do not hold, the origin NIC breaks first at ~14 Gbit/s.
 
-**The failure you volunteer.** Bucket unreachable: creates 503, cold reads 503, edge hits work until max-age, deletes still 204, outbox drains later. Not 404. Not a local disk.
+## Say this in the room
 
-That pair, 10× and one failure, is the close. Do not add a third unless they ask.
-
-## Talking points
-
-**Say, as the spine of the hour.** "Capability URL, no accounts, expiry on the read. 116 writes a second, 5,800 reads, times three at peak, 4.5 TB, 1.4 Gbit/s. Id is 12 characters, never reused. Four app processes because one won't take the peak reads, and three with one down leave 16,000 against 17,400. Primary for the row, replica for the row's survival, not for the GET. Cache-aside for metadata because the primary's read ceiling is under the peak. Bucket because I will not restore 450 million files. CDN because a hot 1 MB paste does not fit the origin. Queue only for purge and delete of bytes. 201 after PUT and commit. At 10× the commits break first if the CDN is actually hitting. If the bucket dies, cold reads 503 and fresh edge hits don't."
-
-**Hand-waving.** Any box in that paragraph you cannot attach to the break in the previous sentence. Cut the box, not the sentence.
-
-**Hand-waving.** "And Kafka, and Elasticsearch, and multi-region." None of those has a break in this pass. Search and a second region were non-goals. The cleanup rate is ~116 jobs a second.
-
-**If they pull one deep dive, pick one and finish it.** The best three, still: the id width and never-reuse (including why a late reap is safe only then); the tombstone versus the TTL; the orphan and the one-hour floor. Doing all three is how you run out of clock. Offer one.
-
-**If they ask what you would not build.** Accounts, a public bucket, create-on-a-queue, reads from the replica, retries on timeouts, a body cache inside Redis, a classifier.
+116 writes a second and 5,800 reads, times three at peak, is about 350 writes and 17,400 reads, with 4.5 TB resident and 1.4 Gbit/s at the edge. Four app processes, because one down must still clear that peak: 3×8,000 = 24,000, while two processes are only 16,000 and three fall through when one drains. 201 waits for the object PUT and the primary commit; the replica keeps the rows if that disk dies, and it is not on the GET. The edge may still serve a deleted paste for at most 60 seconds; if the bucket is down, cold reads are 503 and a fresh edge hit is not. At 10×, if the hit rates hold, the primary's commits break first, near a 2,000/s planning ceiling against about 3,500 commits a second.
 
 ## Kit artifact
 
