@@ -40,7 +40,7 @@ Install the hour: requirements and numbers before boxes, then a diagram you can 
 
 ## Phase 2 — First distributed design (Days 8–28)
 
-Each new box is a fix for a break in the pastebin, not a catalog of tools. Day 28 is a different prompt that still needs a cache, a durable store, and a queue.
+Each new box is a fix for a break in the pastebin, not a catalog of tools. Day 28 is a different prompt. Do not treat this map as the boxes that mock requires.
 
 | Day | Title | Type | Intent |
 |---|---|---|---|
@@ -64,7 +64,7 @@ Each new box is a fix for a break in the pastebin, not a catalog of tools. Day 2
 | 25 | [Failure overlay on the pastebin](days/25-failure-overlay-on-the-pastebin.md) | Lesson | Facing "what if this dies," leave able to overlay one dependency failure and the user-visible result. |
 | 26 | [End-to-end distributed pastebin](days/26-end-to-end-distributed-pastebin.md) | Lesson | Facing a full loop on the spine, leave able to assemble the distributed pastebin in one interview-shaped pass. |
 | 27 | [Red-team before they do](days/27-red-team-before-they-do.md) | Lesson | Facing your own finished design, leave able to find the holes a staff interviewer would open and patch the reasoning. |
-| 28 | [Mock: image upload and thumbnails](days/28-mock-image-upload-and-thumbnails.md) | Mock | Facing an interview problem that is not the pastebin, leave able to design image upload and thumbnails with a cache, a durable store, and a queue, then log a self-score. |
+| 28 | [Mock: image upload and thumbnails](days/28-mock-image-upload-and-thumbnails.md) | Mock | Facing an interview problem that is not the pastebin, leave able to design image upload and thumbnails from the product behavior, then log a self-score. |
 
 ## Phase 3 — Data and consistency (Days 29–49)
 
@@ -203,7 +203,7 @@ Mock rule: the prompt is never that week's lesson topic. Day 7 is the exception 
 | Day | Prompt | Not this week |
 |---|---|---|
 | 7 | Pastebin, closed book | Method lessons only; this mock installs the rubric |
-| 28 | Image upload and thumbnails | Not the pastebin spine. Must use cache, durable storage, and a queue |
+| 28 | Image upload and thumbnails | Not the pastebin spine. Closed book. Score behavior, not a required box list |
 | 49 | Warehouse inventory reservation | Not schema change, indexes, or retention. Seats are day 61 |
 | 63 | Job scheduler | Not search, video, nearby, tickets, or metrics ingest |
 | 77 | Email inbox | Not graph, stories, crawler, order book, flags, or audit |

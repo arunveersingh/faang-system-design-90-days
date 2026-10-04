@@ -25,7 +25,7 @@ The interviewer says: "Object storage starts taking seconds instead of tens of m
 
 ## Attempt before reading
 
-10 minutes. Do not scroll. Peak creates are about 350/s. Peak reads are about 17,400/s, most of the bytes supposed to be at the CDN, origin reads still able to hit the bucket. Three app processes. Create is PUT then insert, and the user waits. You refused to queue the create.
+10 minutes. Do not scroll. Peak creates are about 350/s. Peak reads are about 17,400/s, most of the bytes supposed to be at the CDN, origin reads still able to hit the bucket. Four app processes. Create is PUT then insert, and the user waits. You refused to queue the create.
 
 Write:
 
@@ -58,14 +58,14 @@ Memory is the immediate break. An app that accepts every create and holds the bo
 
 Planning assumption: a healthy PUT returns in well under a second. You do not need the exact millisecond. You need the sick number the interviewer gave: **5 seconds.**
 
-In flight if you accept the whole peak: 350 creates/s × 5 s = **1,750 creates** holding a body. At the 10 KB mean that is about **18 MB**. Survivable. At the **1 MB cap**, if the slowdown coincides with large bodies, 1,750 × 1 MB is about **1.8 GB**, and it is split across only three processes, and it grows for as long as the sickness lasts because 5 seconds was not a maximum, it was a guess. If PUTs take 30 seconds, multiply by six. The mean-case math is how this bug hides in review. The cap is how it kills a process.
+In flight if you accept the whole peak: 350 creates/s × 5 s = **1,750 creates** holding a body. At the 10 KB mean that is about **18 MB**. Survivable. At the **1 MB cap**, if the slowdown coincides with large bodies, 1,750 × 1 MB is about **1.8 GB**, and it is split across only four processes, and it grows for as long as the sickness lasts because 5 seconds was not a maximum, it was a guess. If PUTs take 30 seconds, multiply by six. The mean-case math is how this bug hides in review. The cap is how it kills a process.
 
 So the bound is on **count and on bytes**, per process:
 
 - At most **50** in-flight creates per app process.
 - At most **32 MB** of request bodies buffered for creates per process.
 
-Fifty is a choice you can say. Three processes × 50 = 150 in flight, not 1,750. You are leaving peak creates unsatisfied on purpose when each one occupies a slot for a long time. That is the shed. A healthy PUT at tens of milliseconds means 50 slots per process is far more than 350/s needs (the slots turn over). The limit does not bite when the dependency is healthy. If it bites on a healthy day, you sized it wrong; do not hide that by raising it in the incident.
+Fifty is a choice you can say. Four processes × 50 = 200 in flight, not 1,750. You are leaving peak creates unsatisfied on purpose when each one occupies a slot for a long time. That is the shed. A healthy PUT at tens of milliseconds means 50 slots per process is far more than 350/s needs (the slots turn over). The limit does not bite when the dependency is healthy. If it bites on a healthy day, you sized it wrong; do not hide that by raising it in the incident.
 
 When a process is at the cap, new creates get **503** and `Retry-After`. They do not get a ticket in an unbounded queue. They do not get a 201. They do not sit on a worker. The client is the place that waits, because only the client knows whether the paste is still worth sending.
 
@@ -101,8 +101,6 @@ A durable queue of creates so the 503 becomes a 202 Accepted. That is a new prod
 Shedding reads first because "writes are the business." The business at this moment is the links already in the world. New writes are how the bucket got sick. Do not feed it.
 
 ## Diagrams
-
-Mermaid stands in for the whiteboard. SVG figures come later; do not wait on them.
 
 ### Who feels a slow bucket
 
@@ -145,7 +143,7 @@ There is no queue arrow in this picture. If you need one, you are looking at day
 
 **Why this order of shedding.** Existing readers are not what is making PUTs slow. Punishing them to keep accepting creates couples the healthy path to the sick one, which is the failure mode.
 
-**10× break.** Peak creates ~3,500/s. Fifty slots times three processes is still 150 in flight. A healthy fast PUT still turns over fast enough that you may be fine; do the arithmetic in the room with the PUT latency they give you. If healthy PUT is 50 ms, one slot does 20 creates/s, 150 slots do 3,000/s, which is just under the 10× peak. The cap that was invisible at 1× becomes the write ceiling at 10×. You raise the cap when the dependency is healthy and the process has the RAM, or you add app processes. You do not remove the cap because 10× "needs throughput." The cap is what keeps 10× from being an OOM when latency slips.
+**10× break.** Peak creates ~3,500/s. Fifty slots times four processes is 200 in flight. A healthy fast PUT still turns over fast enough that you may be fine; do the arithmetic in the room with the PUT latency they give you. If healthy PUT is 50 ms, one slot does 20 creates/s, 200 slots do 4,000/s, which still clears the ~3,500 peak. If healthy PUT is 100 ms, one slot does 10/s, 200 slots do 2,000/s, under the 10× peak. The cap that was invisible at 1× becomes the write ceiling when latency slips, not because the fourth process removed the bound. You raise the cap when the dependency is healthy and the process has the RAM, or you add app processes. You do not remove the cap because 10× "needs throughput." The cap is what keeps 10× from being an OOM when latency slips.
 
 ## Talking points
 

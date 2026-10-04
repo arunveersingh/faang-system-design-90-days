@@ -9,7 +9,7 @@
 
 ## Intent
 
-Facing an interview problem that is not the pastebin, leave able to design image upload and thumbnails with a cache, a durable store, and a queue, then log a self-score. The pastebin lessons are not a script you are allowed to copy. The method is.
+Facing an interview problem that is not the pastebin, leave able to design image upload and thumbnails from the product behavior, then log a self-score. The pastebin lessons are not a script you are allowed to copy. The method is.
 
 ## How to run
 
@@ -20,7 +20,7 @@ Facing an interview problem that is not the pastebin, leave able to design image
 - Timer visible. At zero you stop, even mid-arrow.
 - Score, then write the log from **your** page, then scroll.
 
-A complete design has three things, because the product forces them, not because a checklist said the brand names: a durable place for bytes, a cache so hot reads are not all database reads, and a queue so the upload response does not wait on resizing. If you finish without one of them, that is a gap, not a failure of the timer. Log it. Do not peek to see which one.
+Score what the product does, not which boxes you remembered. A complete page says what the upload returns, what a viewer sees when a smaller version does not exist yet, and what a second run of the same resize does. If one of those is missing, that is a gap, not a failure of the timer. Log it. Do not scroll to find the missing piece.
 
 If you already scrolled, close the page. Run the mock tomorrow from memory, or it measures nothing.
 
@@ -31,8 +31,8 @@ If you already scrolled, close the page. Run the mock tomorrow from memory, or i
 | 0:00–5:00 | What an upload returns, what a viewer can fetch, non-goals. | A tour of image formats |
 | 5:00–10:00 | QPS, bytes in, bytes out, resident set. Average and peak. | The pastebin's 10 KB mean, reused without saying so |
 | 10:00–16:00 | API and the row. Where the original bytes live. | A classifier, a feed, or accounts you did not need |
-| 16:00–26:00 | Upload path and view path, separate. Where resize runs. | Resizing inside the upload request "to keep it simple" after you have already said the file is large |
-| 26:00–33:00 | One deep dive: idempotent worker, delete, or a hot image's bandwidth. | All of the phase's boxes, copied across |
+| 16:00–26:00 | Upload path and view path, separate. Where resize runs. | One path that ignores the other |
+| 26:00–33:00 | One deep dive: a retried resize, delete, or a hot image's bandwidth. | All of the phase's boxes, copied across |
 | 33:00–35:00 | What you did not build, and the 10× break. | A second product |
 
 ## Problem
@@ -79,9 +79,9 @@ Same six dimensions as day 7. Score 1–4 from your page only. A senior-shaped l
 | Score | Anchor |
 |---|---|
 | 1 | A technology tour, or boxes that ignore the numbers. |
-| 2 | A plausible system that is heavier than the numbers, or an upload that waits on every thumbnail, or bytes only on the app disk. |
-| 3 | The smallest design that meets the numbers, with a durable byte store, a cache in front of hot reads or metadata, a queue for resize, and a clear ack point. |
-| 4 | As a 3, and the worker is safe to run twice, and you can say what the user sees while the job has not finished. |
+| 2 | A plausible system that is heavier than the numbers, or the ack is vague, or not-ready, missing, and down are the same result. |
+| 3 | The smallest design that meets the numbers. The ack does not wait on every smaller version. Not-ready, missing, and down are different where the product needs them to be. |
+| 4 | As a 3, and the resize is safe to run twice, and you can say what the user sees while that work has not finished. |
 
 ### Deep dive
 

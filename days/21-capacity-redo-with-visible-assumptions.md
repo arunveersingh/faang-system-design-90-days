@@ -108,8 +108,6 @@ You will not add another cache tier "because fan-out." Three calls on a miss, at
 
 ## Diagrams
 
-Mermaid stands in for the whiteboard. SVG figures come later; do not wait on them.
-
 ### Where a peak read goes
 
 ```mermaid

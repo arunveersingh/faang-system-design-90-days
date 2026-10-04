@@ -59,7 +59,7 @@ A viral read is not abuse. Day 17 refused to rate-limit it at the CDN. This day 
 
 ### One id must not own the primary
 
-Singleflight, per process, collapses a hot key's misses to about one fill at a time per app. Three apps, three fills. That is enough when the key is hot and the cache is merely refreshing.
+Singleflight, per process, collapses a hot key's misses to about one fill at a time per app. Four apps, four fills. That is enough when the key is hot and the cache is merely refreshing.
 
 It is not enough when many keys miss at once on purpose: a client that cache-busts, or a neighbor that requests a wide set of cold ids so singleflight never triggers (every id is unique). Per-IP origin GET limit (50/s) bounds one address. Many addresses, one coordinated crawl of cold ids, is the distributed case again. The pool that protects the primary is a **global cap on concurrent cache-miss fills**, separate from singleflight.
 
@@ -96,8 +96,6 @@ The sweeper's range query, as long as it is batched and slow. If someone runs it
 Honest readers of one viral paste at the CDN. They are the workload. A fairness policy that gives every id 10 reads a second will 503 the paste that made the product matter. Do not do that and call it multi-tenant discipline.
 
 ## Diagrams
-
-Mermaid stands in for the whiteboard. SVG figures come later; do not wait on them.
 
 ### Pools a neighbor can and cannot spend
 

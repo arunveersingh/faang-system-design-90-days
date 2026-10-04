@@ -54,7 +54,7 @@ Assumption for this hour, spoken: **one id takes half of peak reads.** Half of 1
 
 The hot entry is present. Those 8,700 reads/s hit the cache and then the NVMe (the body is not in the cache). The primary does not see them. Good.
 
-At TTL expiry, the next requests miss. You have three app processes. Each will, without help, send its own lookup to the primary and its own body read. That is only three misses if they are perfectly coalesced by accident. They are not. In the same few milliseconds you can have hundreds of misses in flight, because 8,700/s means a new request about every 0.1 ms, and a primary round trip is a millisecond or more. Hundreds of identical point reads land on one row at once. The row is cached in Postgres's buffer pool, so you might survive **this** one key. The failure mode the interviewer is allowed to push: the hot key expires **and** a deploy just restarted the cache, **or** you have many keys expiring together because you set them all with the same TTL aligned to a clock. Then the primary sees a cliff, not one row.
+At TTL expiry, the next requests miss. You have four app processes. Each will, without help, send its own lookup to the primary and its own body read. That is only four misses if they are perfectly coalesced by accident. They are not. In the same few milliseconds you can have hundreds of misses in flight, because 8,700/s means a new request about every 0.1 ms, and a primary round trip is a millisecond or more. Hundreds of identical point reads land on one row at once. The row is cached in Postgres's buffer pool, so you might survive **this** one key. The failure mode the interviewer is allowed to push: the hot key expires **and** a deploy just restarted the cache, **or** you have many keys expiring together because you set them all with the same TTL aligned to a clock. Then the primary sees a cliff, not one row.
 
 Aligned expiry is self-inflicted. If you fill every entry with `TTL = 60` from a cron-shaped warmup, you built the stampede. Jitter is the first control, and it is not sufficient by itself.
 
@@ -74,7 +74,7 @@ If you "invalidate" by setting a short TTL and waiting, a delete is invisible fo
 
 You want **one** fill in flight for a given id, and everyone else waits for it or serves the previous value.
 
-**Per-process singleflight.** Inside one app, concurrent misses for the same id share one primary lookup and one body read. The others wait on that result, with a timeout. Three processes mean up to three fills, not 8,700. At this ceiling, three point reads are nothing. This is the control you take first, because it does not add a cluster lock.
+**Per-process singleflight.** Inside one app, concurrent misses for the same id share one primary lookup and one body read. The others wait on that result, with a timeout. Four processes mean up to four fills, not 8,700. At this ceiling, four point reads are nothing. This is the control you take first, because it does not add a cluster lock.
 
 **Jittered TTL.** Set the entry TTL uniformly between **45 and 75 seconds**, not a flat 60. Keys, and rebuilds of the same hot key, do not expire on the minute. Jitter does not collapse a single key's thundering herd by itself; singleflight does. Jitter stops a whole slab of keys from expiring together after a restart that refilled them in a tight loop.
 
@@ -82,7 +82,7 @@ You want **one** fill in flight for a given id, and everyone else waits for it o
 
 What you do not add:
 
-- A distributed lock in the cache for every id, as the first design. Across three processes, singleflight already cut the miss fan-out from thousands to three. A lock service is a new dependency on the read path of your hottest key. Take it only if they show you dozens of app processes and a primary that still falls over at that fan-out. Then the lock is "one filler cluster-wide," with a short lease, and waiters that give up and 503 rather than all hitting the primary. Day 19 is the give-up.
+- A distributed lock in the cache for every id, as the first design. Across four processes, singleflight already cut the miss fan-out from thousands to four. A lock service is a new dependency on the read path of your hottest key. Take it only if they show you dozens of app processes and a primary that still falls over at that fan-out. Then the lock is "one filler cluster-wide," with a short lease, and waiters that give up and 503 rather than all hitting the primary. Day 19 is the give-up.
 - A counter of hits in the primary. That write path is hotter than the read you were protecting.
 - Pre-warming every live paste. 450 million entries will not fit, and most are never read.
 
@@ -95,8 +95,6 @@ What you do not add:
 Tombstone, as on day 10. Singleflight waiters who are in flight with a pre-delete primary read must not overwrite the tombstone when they finish. The filler checks the tombstone before `SET`. Waiters who already received bytes may still be streaming. You do not recall a TCP stream. The user-visible leftover is in-flight responses, not a fresh hour of cache.
 
 ## Diagrams
-
-Mermaid stands in for the whiteboard. SVG figures come later; do not wait on them.
 
 ### One filler, many waiters
 
@@ -116,7 +114,7 @@ sequenceDiagram
   A-->>R1: all waiters get the one result
 ```
 
-The other two app processes may do this once each. Draw a second arrow only if you are answering "is singleflight global?" The answer is no.
+The other three app processes may do this once each. Draw a second arrow only if you are answering "is singleflight global?" The answer is no.
 
 ### Two clocks that are not the same
 
@@ -142,11 +140,11 @@ If a design merges these three into one timer, it will either serve deleted past
 
 **Why not the alternatives.** A 5 second TTL makes the stampede twelve times more often and does not replace a tombstone. A cluster lock on every key puts your hottest read behind a lock service for a problem three fills already solved. "Just hit the primary" is fine for one row at 8,700 **if** the only problem is one row. It is not fine when the cache restarts and the whole working set misses. The stampede control is for the cliff, not for the steady state of one popular file.
 
-**10× break.** Half of ~174,000 is about **87,000 reads/s on one key.** Three singleflights still protect the primary. The NVMe and the one app process streaming 87,000 responses do not. At a 10 KB body that is ~870 MB/s, near a full 10 Gbit NIC, from one key, and the process ceiling was 8,000 reads/s. The hot key breaks the **app and the NIC** at 10× long before it breaks a primary you protected. The next fix is to stop serving those bytes from the app (day 15), not a smarter lock. Say that so you do not spend the hour deepening singleflight while the bytes set the building on fire.
+**10× break.** Half of ~174,000 is about **87,000 reads/s on one key.** Four singleflights still protect the primary. The NVMe and the one app process streaming 87,000 responses do not. At a 10 KB body that is ~870 MB/s, near a full 10 Gbit NIC, from one key, and the process ceiling was 8,000 reads/s. The hot key breaks the **app and the NIC** at 10× long before it breaks a primary you protected. The next fix is to stop serving those bytes from the app (day 15), not a smarter lock. Say that so you do not spend the hour deepening singleflight while the bytes set the building on fire.
 
 ## Talking points
 
-**Say.** "Half of peak on one id is about 8,700 reads a second. Steady state is a cache hit. The cliff is expiry or a cold cache. Per process I singleflight the miss, so three apps mean about three primary reads, not thousands. TTL is jittered between 45 and 75 seconds so I don't line the cliffs up. Delete is a tombstone. I will not shorten the TTL and call it invalidation."
+**Say.** "Half of peak on one id is about 8,700 reads a second. Steady state is a cache hit. The cliff is expiry or a cold cache. Per process I singleflight the miss, so four apps mean about four primary reads, not thousands. TTL is jittered between 45 and 75 seconds so I don't line the cliffs up. Delete is a tombstone. I will not shorten the TTL and call it invalidation."
 
 **Say.** "One row in Postgres can take this. The dangerous case is many keys missing at once. Singleflight plus jitter is aimed at that. I am not adding a trending table."
 

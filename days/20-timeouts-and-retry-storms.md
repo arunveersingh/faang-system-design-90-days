@@ -106,8 +106,6 @@ A hedge is a second request you send before the first finishes, to cut tail late
 
 ## Diagrams
 
-Mermaid stands in for the whiteboard. SVG figures come later; do not wait on them.
-
 ### What may be retried
 
 ```mermaid
@@ -143,7 +141,7 @@ Erase the "3 retries" box and the extra load goes away. That is the design, not 
 
 **Why the alternative fails.** It multiplies the sick subset, it holds slots longer (backoff inside an HTTP request is a self-inflicted timeout), and on creates it double-writes. Backoff belongs off the request path.
 
-**10× break.** 174,000 cold origin reads, 20% timing out, three retries: on the order of 100,000 extra attempts. The storm scales with the traffic. The rule "do not retry a timeout" scales too: it stays one attempt, and the 10× problem remains the primary's real capacity, not your amplifier. A breaker at 10× must be per process or shared carefully; 22 app processes each probing every 5 seconds is fine, 22 processes each retrying the world is not. The rule matters more as you get bigger, which is the opposite of "we'll add retries when we're serious."
+**10× break.** 174,000 cold origin reads, 20% timing out, three retries: on the order of 100,000 extra attempts. The storm scales with the traffic. The rule "do not retry a timeout" scales too: it stays one attempt, and the 10× problem remains the primary's real capacity, not your amplifier. A breaker at 10× must be per process or shared carefully; about 23 app processes each probing every 5 seconds is fine, 23 processes each retrying the world is not. The rule matters more as you get bigger, which is the opposite of "we'll add retries when we're serious."
 
 ## Talking points
 

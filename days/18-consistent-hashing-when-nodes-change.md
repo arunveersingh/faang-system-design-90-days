@@ -25,7 +25,7 @@ The interviewer says: "You have one cache node. You need several, and you will r
 
 ## Attempt before reading
 
-10 minutes. Do not scroll. The cache holds metadata by paste id, TTL jittered around a minute, tombstones on delete. The primary's read ceiling is about 15,000/s. Three app processes sit behind least connections. They are not keyed by paste id.
+10 minutes. Do not scroll. The cache holds metadata by paste id, TTL jittered around a minute, tombstones on delete. The primary's read ceiling is about 15,000/s. Four app processes sit behind least connections. They are not keyed by paste id.
 
 Write:
 
@@ -83,8 +83,6 @@ Use the ring when membership changes without a ceremony: a cache node's replacem
 Modulo is the tool you use when N is fixed forever. N is not fixed forever. So you do not use modulo.
 
 ## Diagrams
-
-Mermaid stands in for the whiteboard. SVG figures come later; do not wait on them.
 
 ### What moves
 

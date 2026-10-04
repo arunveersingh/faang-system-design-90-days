@@ -74,7 +74,7 @@ These are assumptions, as visible as the 3× peak. They are not measurements of 
 
 429 is not 404 and not 500. The client can retry later. The body tells them it was a limit, not a missing paste. Do not reuse `not_found`.
 
-Shared state for the buckets lives in the **cache tier you already have**, not in the memory of one app process. Three processes with three private counters allow three times the limit, and a round-robin (you are on least connections, which is worse) lets a client hunt for the empty bucket. One key `rl:{ip}` with an atomic increment and an expiry. If the cache is down, pick a policy and say it: **fail open on the per-IP buckets, fail closed on nothing you cannot compute, and keep the global cap conservative.** A dead cache that rejects every create is an outage the limiter invented. A dead cache that allows the per-IP burst until the global 350/s cap still bounds the cluster. Fail open per IP, enforce a coarse global counter in the primary only if you must... actually a global counter in the primary on every create is a write you do not want. Coarse approach: each app allows a local share of the global cap (350/3, with slack) when the cache is down, and pages. Good enough. Do not stop the product because the limiter's store blinked.
+Shared state for the buckets lives in the **cache tier you already have**, not in the memory of one app process. Four processes with four private counters allow four times the limit, and a round-robin (you are on least connections, which is worse) lets a client hunt for the empty bucket. One key `rl:{ip}` with an atomic increment and an expiry. If the cache is down, pick a policy and say it: **fail open on the per-IP buckets, fail closed on nothing you cannot compute, and keep the global cap conservative.** A dead cache that rejects every create is an outage the limiter invented. A dead cache that allows the per-IP burst until the global 350/s cap still bounds the cluster. Fail open per IP, enforce a coarse global counter in the primary only if you must... actually a global counter in the primary on every create is a write you do not want. Coarse approach: each app allows a local share of the global cap (350/4, with slack) when the cache is down, and pages. Good enough. Do not stop the product because the limiter's store blinked.
 
 ### Reads
 
@@ -94,8 +94,6 @@ You do **not** rate-limit a paste id's successful CDN reads. That is the viral p
 No account lockout, no captcha theater unless they ask. If they ask where a challenge would go: on create, after the limiter, before the PUT, and only for the IP already over a suspicious-but-not-banned rate. It is still not a classifier over the paste text. You can decline to design the challenge. "A hook on create, before the durable write, same place as the 429" is the whole answer.
 
 ## Diagrams
-
-Mermaid stands in for the whiteboard. SVG figures come later; do not wait on them.
 
 ### Reject before the expensive call
 
@@ -144,7 +142,7 @@ The bottom box is part of the answer. A limiter you describe as complete, while 
 
 ## Talking points
 
-**Say.** "429 before PUT. Per IP, about one create a second with a small burst, and a byte budget so they can't post the 1 MB cap at that rate all day. Global cap at the 350 a second I sized the write path for. State lives in the cache, otherwise three apps are three budgets. I do not rate-limit a viral read at the CDN. I do not scan the text."
+**Say.** "429 before PUT. Per IP, about one create a second with a small burst, and a byte budget so they can't post the 1 MB cap at that rate all day. Global cap at the 350 a second I sized the write path for. State lives in the cache, otherwise four apps are four budgets. I do not rate-limit a viral read at the CDN. I do not scan the text."
 
 **Say.** "Per-IP misses a botnet and punishes a NAT. That is the trade for having no accounts. I'm not adding accounts to fix abuse in this hour."
 

@@ -102,8 +102,6 @@ The user waited through step 9. Everything you were tempted to call async on cre
 
 ## Diagrams
 
-Mermaid stands in for the whiteboard. SVG figures come later; do not wait on them.
-
 ### Read
 
 ```mermaid

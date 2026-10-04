@@ -95,8 +95,6 @@ You do not get to claim a hit rate you have not labeled. For the hot paste that 
 
 ## Diagrams
 
-Mermaid stands in for the whiteboard. SVG figures come later; do not wait on them.
-
 ### What the edge may answer
 
 ```mermaid

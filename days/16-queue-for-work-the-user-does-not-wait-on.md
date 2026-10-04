@@ -102,8 +102,6 @@ Kafka-shaped machinery, consumer groups as a tour, exactly-once transactions acr
 
 ## Diagrams
 
-Mermaid stands in for the whiteboard. SVG figures come later; do not wait on them.
-
 ### What the response waits for
 
 ```mermaid
@@ -141,7 +139,7 @@ flowchart LR
 
 **What you give up.** An outbox table and a worker you must run. Delete's origin work is still synchronous (the commit); only the fan-out is async. You accept up to 60 seconds of edge staleness, which you already accepted when you set max-age. The queue did not invent that lie. It stops the request from getting longer than the lie.
 
-**Why not inline.** A slow CDN purge API on the delete path makes every delete as slow as the most unhappy edge, and a hung purge call ties up an app process. You have three processes and a 5 second drain budget. A stuck purge during deploys will burn that budget and start cutting unrelated requests.
+**Why not inline.** A slow CDN purge API on the delete path makes every delete as slow as the most unhappy edge, and a hung purge call ties up an app process. You have four processes and a 5 second drain budget. A stuck purge during deploys will burn that budget and start cutting unrelated requests.
 
 **Why not async create.** The product is the link. A link that 404s until a worker runs is a broken product, not a backlog. There is no user-visible "processing" state in the requirements, and you should not add one to justify the queue.
 

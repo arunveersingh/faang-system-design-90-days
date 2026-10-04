@@ -67,7 +67,7 @@ The boxes, each with the break that added it:
 
 | Box | Why it exists | Why it is not something else |
 |---|---|---|
-| App processes, three | One process's planning ceiling, ~8,000 streaming reads/s, is under the 17,400 peak. | No session. Least connections. Drain on deploy. |
+| App processes, four | Peak ~17,400 reads. Ceiling ~8,000 per process. One down must still clear peak: 3×8,000 = 24,000. Two do not meet the peak (16,000). Three fall through on a drain. | No session. Least connections. Drain on deploy. |
 | Primary Postgres | Point key plus expiry range. | Not a key-value store, because the sweeper is a range. |
 | Async replica | A dead primary disk must not take every row. | GETs do not read it. It does not have the bytes. |
 | Metadata cache, ring | Primary read ceiling ~15,000/s while it is also committing. | Not the body. Tombstone on delete. TTL is not invalidation. |
@@ -86,8 +86,6 @@ Edge hit returns the body and you see nothing. Edge miss: metadata cache, and on
 Limit, then validate, then PUT, then insert, then 201. Delete commits the row and the outbox, writes the tombstone, returns 204. A worker deletes the object and purges. Until then an edge may still be inside max-age.
 
 ## Diagrams
-
-Mermaid stands in for the whiteboard. SVG figures come later; do not wait on them.
 
 ### Whiteboard
 
@@ -151,7 +149,7 @@ That pair, 10× and one failure, is the close. Do not add a third unless they as
 
 ## Talking points
 
-**Say, as the spine of the hour.** "Capability URL, no accounts, expiry on the read. 116 writes a second, 5,800 reads, times three at peak, 4.5 TB, 1.4 Gbit/s. Id is 12 characters, never reused. Three app processes because one won't take the peak reads. Primary for the row, replica for the row's survival, not for the GET. Cache-aside for metadata because the primary's read ceiling is under the peak. Bucket because I will not restore 450 million files. CDN because a hot 1 MB paste does not fit the origin. Queue only for purge and delete of bytes. 201 after PUT and commit. At 10× the commits break first if the CDN is actually hitting. If the bucket dies, cold reads 503 and fresh edge hits don't."
+**Say, as the spine of the hour.** "Capability URL, no accounts, expiry on the read. 116 writes a second, 5,800 reads, times three at peak, 4.5 TB, 1.4 Gbit/s. Id is 12 characters, never reused. Four app processes because one won't take the peak reads, and three with one down leave 16,000 against 17,400. Primary for the row, replica for the row's survival, not for the GET. Cache-aside for metadata because the primary's read ceiling is under the peak. Bucket because I will not restore 450 million files. CDN because a hot 1 MB paste does not fit the origin. Queue only for purge and delete of bytes. 201 after PUT and commit. At 10× the commits break first if the CDN is actually hitting. If the bucket dies, cold reads 503 and fresh edge hits don't."
 
 **Hand-waving.** Any box in that paragraph you cannot attach to the break in the previous sentence. Cut the box, not the sentence.
 

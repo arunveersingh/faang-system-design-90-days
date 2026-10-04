@@ -25,7 +25,7 @@ The interviewer says: "The app tier is no longer the ceiling. The primary is. Ev
 
 ## Attempt before reading
 
-12 minutes. Do not scroll. You have three app processes behind a balancer, rows on one Postgres, bodies on one NVMe. Peak is about 17,400 reads/s and 350 writes/s.
+12 minutes. Do not scroll. You have four app processes behind a balancer, rows on one Postgres, bodies on one NVMe. Peak is about 17,400 reads/s and 350 writes/s.
 
 Write:
 
@@ -106,8 +106,6 @@ Until the tombstone is in the picture, the honest contract is: origin reads can 
 Expiry does not delete the key. The read checks `expires_at`. A stale entry past expiry is a 404 on the hit path. That is why the timestamp is inside the value.
 
 ## Diagrams
-
-Mermaid stands in for the whiteboard. SVG figures come later; do not wait on them.
 
 ### Miss path
 

@@ -90,7 +90,7 @@ User: a link you already handed out 404s. The bytes may still be in the bucket w
 
 ### 6. Singleflight is per process
 
-Trigger: the hot key expires, and you have three processes, or thirty after a scale-out.
+Trigger: the hot key expires, and you have four processes, or thirty after a scale-out.
 
 User: the primary sees N identical reads, not one. At three, this is fine. At thirty, with a cold cache, it is a stampede you claimed to have fixed.
 
@@ -125,8 +125,6 @@ User: a live paste looks deleted, or a dead store looks deleted, and you will re
 Raft, multi-region active-active, a new id scheme, moving off Postgres, a malware model. Those are other interviews. If you bring them up, you are avoiding a hole you could have patched with a sentence.
 
 ## Diagrams
-
-Mermaid stands in for the whiteboard. SVG figures come later; do not wait on them.
 
 ### Where a delete is not one moment
 

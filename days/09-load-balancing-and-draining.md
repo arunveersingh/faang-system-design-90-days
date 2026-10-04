@@ -15,17 +15,17 @@
 
 ## Intent
 
-Facing uneven load, leave able to choose balancing, health checks, and drain behavior, and say what each does to in-flight work. The balancer is the fix for three processes that clients cannot see. It is not a product.
+Facing uneven load, leave able to choose balancing, health checks, and drain behavior, and say what each does to in-flight work. The balancer is the fix for four processes that clients cannot see. It is not a product.
 
 ## Problem
 
 > Design a pastebin. People paste text and share a link.
 
-The interviewer says: "You drew three app processes. Who sends work to them, and what happens to a create when you deploy?"
+The interviewer says: "You drew four app processes. Who sends work to them, and what happens to a create when you deploy?"
 
 ## Attempt before reading
 
-10 minutes. Do not scroll. The tier from day 8 is in place: three stateless app processes, no session, bodies and rows still on one data host, peak about 17,400 reads/s.
+10 minutes. Do not scroll. The tier from day 8 is in place: four stateless app processes, no session, bodies and rows still on one data host, peak about 17,400 reads/s.
 
 Write:
 
@@ -50,7 +50,7 @@ You are not promising zero double-creates across a crash. You are promising a de
 
 ## Design
 
-One load balancer in front of the three app processes. Clients keep a single address. The balancer does not terminate the paste contract; it forwards HTTP. TLS can end at the balancer so the app ceiling from day 8 (8,000 streaming reads, which included TLS copy) goes up. Say whether your ceiling assumed TLS. If the balancer terminates TLS, restate the ceiling before you keep three processes out of habit. A planning move: TLS offload may take a process from 8,000 to something higher. You still keep three, because a deploy removes one, and peak over two processes is 17,400 against two times the new ceiling. Do the division in the room. Do not leave "three" as folklore from yesterday.
+One load balancer in front of the four app processes. Clients keep a single address. The balancer does not terminate the paste contract; it forwards HTTP. TLS can end at the balancer so the app ceiling from day 8 (8,000 streaming reads, which included TLS copy) goes up. Say whether your ceiling assumed TLS. If the balancer terminates TLS, restate the ceiling before you keep four processes out of habit. A planning move: TLS offload may take a process from 8,000 to something higher. You still keep four, because a deploy removes one, and 17,400 has to fit in three times the new ceiling. At the old ceiling that is 3×8,000 = 24,000. Two processes are 16,000, under the peak even before anyone restarts. Three with one down are the same 16,000, so they fall through during a drain. Do the division in the room. Do not leave "four" as folklore from yesterday.
 
 ### How a request picks a process
 
@@ -98,8 +98,6 @@ It is not sticky. It is not a second cache. It is not where you put rate limits 
 
 ## Diagrams
 
-Mermaid stands in for the whiteboard. SVG figures come later; do not wait on them.
-
 ### Who receives new work
 
 ```mermaid
@@ -107,13 +105,15 @@ flowchart LR
   client[Client] --> lb[Load balancer]
   lb -->|least connections| a1[App 1 ready]
   lb -->|least connections| a2[App 2 ready]
-  lb -.->|not ready, no new work| a3[App 3 draining]
+  lb -->|least connections| a3[App 3 ready]
+  lb -.->|not ready, no new work| a4[App 4 draining]
   a1 --> data[Data host]
   a2 --> data
   a3 --> data
+  a4 --> data
 ```
 
-The dotted edge is the whole deploy story. In-flight on app 3 is not drawn as "deleted."
+The dotted edge is the whole deploy story. In-flight on app 4 is not drawn as "deleted." Three ready processes are the headroom from day 8: 3×8,000 still clears peak.
 
 ### Drain against the 201
 

@@ -98,8 +98,6 @@ The row, the token hash, the secondary index, the cache. Analytics. A public HTM
 
 ## Diagrams
 
-Mermaid stands in for the whiteboard. SVG figures come later; do not wait on them.
-
 ### Write order and the orphan
 
 ```mermaid

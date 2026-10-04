@@ -65,7 +65,7 @@ You bet the day-21 assumptions **hold**: 95% of GETs hit the CDN, 90% of origin 
 Under that bet, at 10×:
 
 - CDN serves ~14 Gbit/s and ~165,000 of the 174,000 reads. You treat CDN capacity as a quota you must confirm, not as an infinite box. If the quota is below 14 Gbit/s, the CDN is the break and the fix is the quota or a second network path **you pay the CDN for**, not an origin you scale to 14 Gbit/s "just in case." For the rest of this page, assume the quota exists, because that was the point of day 15. Name the assumption.
-- Origin reads ~8,700/s. Three app processes at an 8,000 ceiling still fit (24,000). You do not add a fleet first.
+- Origin reads ~8,700/s. Four app processes at an 8,000 ceiling still fit (32,000, or 24,000 with one down). You do not add a fleet first.
 - Primary **reads** ~870/s. Under the 15,000 ceiling. The cache did its job.
 - Bucket GETs ~8,700/s × 10 KB ≈ **87 MB/s**. Fine. PUTs ~35 MB/s. Fine.
 - Primary **commits ~3,500/s**, plus the delete stream. When the 45-day window is full, deletes are the same order as creates, so the primary may see on the order of **several thousand row commits a second**, not 3,500 reads.
@@ -101,8 +101,6 @@ If they ask "which bet is yours?": the hit-rate bet, because you spent days 10 a
 This is the second break, not the first, under the hit-rate bet. 45 TB of 10 KB objects will not break PUT bandwidth. It will break any operation that **lists**. The reaper stays key-directed from the outbox and the failure log. A restore story that is "list the bucket and copy" will not finish. You say that as the follow-on, after the primary, if they ask "what breaks second?" You do not lead with it while commits are already over the ceiling.
 
 ## Diagrams
-
-Mermaid stands in for the whiteboard. SVG figures come later; do not wait on them.
 
 ### First break, hit rates holding
 

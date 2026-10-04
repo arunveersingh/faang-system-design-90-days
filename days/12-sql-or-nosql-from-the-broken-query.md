@@ -95,8 +95,6 @@ You do not run a second metadata database "for the reads." The cache is the read
 
 ## Diagrams
 
-Mermaid stands in for the whiteboard. SVG figures come later; do not wait on them.
-
 ### The only queries
 
 ```mermaid

@@ -64,16 +64,16 @@ You narrow the original machine and add app machines.
 clients
    |
    v
-[app host 1] [app host 2] [app host 3]     stateless paste process
-        \         |         /
-         \        |        /
-          v       v       v
-              [data host]
+[app host 1] [app host 2] [app host 3] [app host 4]   stateless paste process
+      \            |            |           /
+       \           |            |          /
+        v           v            v         v
+                       [data host]
                 |-- Postgres (the row)
                 |-- NVMe /data/{id[0:3]}/{id}
 ```
 
-Three app processes because 17,400 / 8,000 is 2.2, and you want one process to die or drain without falling back through the ceiling. Two would meet the average and fail the peak the moment one restarts. Say that. Do not draw thirty.
+Four app processes because 17,400 / 8,000 is 2.2, and you want one process to die or drain without falling through the ceiling. Two are 16,000, under the peak even while both are up. Three meet the peak only while all three are up; one down leaves 16,000 against 17,400. Four leaves 3×8,000 = 24,000. Say that. Do not draw thirty.
 
 **Stateless means:** any app process can take any request. Kill one and the others still create, read, and delete. A deploy replaces one process at a time. You will define drain on day 9. Today the claim is only that the process is not the sole place a request can land.
 
@@ -88,7 +88,7 @@ What you refuse while drawing this:
 - A cache. The primary is not the break you were given. The process was.
 - A queue. The user is still waiting for the link. The app processes do the create inline.
 - Putting the NVMe on every app host. That is N copies you do not reconcile.
-- Calling the app tier highly available. Three processes hide a process crash. They do not hide the data host. Say the failure domain out loud: **the data host is still one disk and one Postgres.** Day 5's restore problem is exactly where you left it. 450 million files, one NVMe. You added machines in front of it.
+- Calling the app tier highly available. Four processes hide a process crash. They do not hide the data host. Say the failure domain out loud: **the data host is still one disk and one Postgres.** Day 5's restore problem is exactly where you left it. 450 million files, one NVMe. You added machines in front of it.
 
 Memory on an app process stays small. It holds the in-flight body only until the data host has it. It does not accumulate pastes. If it does, you have accidentally built a second store.
 
@@ -96,13 +96,11 @@ Create is still not idempotent. A client that retries after a killed process can
 
 ### How many, said as arithmetic
 
-Peak reads 17,400. Ceiling 8,000 per process. Minimum at peak is 3 processes so that one can be down and 16,000 of ceiling remains against 17,400. That is still tight on purpose: you are not buying a fleet to feel calm. If they change the ceiling to 20,000, you go back to one process and this page was wrong. Good. The ceiling was an assumption.
+Peak reads 17,400. Ceiling 8,000 per process. Minimum at peak is 4 processes so that one can be down and 24,000 of ceiling remains against 17,400. Two processes are 16,000, which does not meet the peak. Three leave 16,000 when one drains, so they fall through. You are not buying a fleet to feel calm. If they change the ceiling to 20,000, one process meets the peak and two keep the spare. The four on this page was the 8,000 assumption, not a law. Good. The ceiling was an assumption.
 
-Peak writes, 350/s, are not why you have three processes. Group commit on the data host still absorbs them. The app tier spends almost nothing on a write compared with streaming a read. Do not size the tier from the write number.
+Peak writes, 350/s, are not why you have four processes. Group commit on the data host still absorbs them. The app tier spends almost nothing on a write compared with streaming a read. Do not size the tier from the write number.
 
 ## Diagrams
-
-Mermaid stands in for the whiteboard. SVG figures come later; do not wait on them.
 
 ### Whiteboard
 
@@ -111,14 +109,16 @@ flowchart LR
   clients[Clients] --> app1[App process]
   clients --> app2[App process]
   clients --> app3[App process]
+  clients --> app4[App process]
   app1 --> data[Data host]
   app2 --> data
   app3 --> data
+  app4 --> data
   data --> pg[(Postgres rows)]
   data --> disk["NVMe /data/abc/id"]
 ```
 
-Say while drawing: "Three numbers in the corner. Peak 17,400 reads. Planning ceiling 8,000 per process. Three processes. Bytes and rows stay on one data host."
+Say while drawing: "Three numbers in the corner. Peak 17,400 reads. Planning ceiling 8,000 per process. Four processes, so one down still clears peak. Bytes and rows stay on one data host."
 
 ### Where state sits
 
@@ -139,19 +139,19 @@ The picture is the lesson. If session or file state appears inside the app box, 
 
 ## Trade-offs
 
-**Choice.** Three stateless app processes in front of one data host. No sticky sessions. Bodies stay on the one NVMe.
+**Choice.** Four stateless app processes in front of one data host. No sticky sessions. Bodies stay on the one NVMe.
 
 **Alternative.** A bigger single process, or sticky sessions to a copy of the cache you do not have yet, or a second data host with its own disk.
 
-**What you give up.** A network hop to Postgres and to the bytes, on every create and every read. In-process calls became remote calls. A slow data host now stalls three app processes instead of one. You also give up the ability to reboot "the server" as one thing; you have a role split to operate.
+**What you give up.** A network hop to Postgres and to the bytes, on every create and every read. In-process calls became remote calls. A slow data host now stalls four app processes instead of one. You also give up the ability to reboot "the server" as one thing; you have a role split to operate.
 
 **Why you still do it.** 17,400 does not fit an 8,000 ceiling, and a deploy of the only process is a total outage that the NIC math never mentioned. The hop is the cost of being able to restart an app without restarting the disk.
 
-**10× break.** Peak reads go to about 174,000. At 8,000 per process that is about 22 processes, which you can still call an app tier. The data host does not come along for free: one NIC at ~14 Gbit/s still dies, and one Postgres still sees every metadata read. The second box fixed the event loop. It did not fix egress or the primary. Do not "add more app servers" as the answer to a full disk.
+**10× break.** Peak reads go to about 174,000. At 8,000 per process, 22 meet the peak and 23 keep one down (22×8,000 clears 174,000). You can still call that an app tier. The data host does not come along for free: one NIC at ~14 Gbit/s still dies, and one Postgres still sees every metadata read. The second box fixed the event loop. It did not fix egress or the primary. Do not "add more app servers" as the answer to a full disk.
 
 ## Talking points
 
-**Say.** "One process, I'm calling the ceiling 8,000 streaming reads a second, planning number, not a benchmark. Peak is 17,400, so I want three processes and I want any of them to take any request. There is no session. The delete token is on the client, the hash is in the row. The files are still on one NVMe. Three app boxes do not make that disk durable."
+**Say.** "One process, I'm calling the ceiling 8,000 streaming reads a second, planning number, not a benchmark. Peak is 17,400, so I want four processes and I want any of them to take any request. One down leaves 24,000, which still clears peak. Two do not meet the peak, and three fall through on a drain. There is no session. The delete token is on the client, the hash is in the row. The files are still on one NVMe. Four app boxes do not make that disk durable."
 
 **Say.** "I size from peak reads, not from writes. Writes are 350 a second and they still group-commit on the data host. The 201 order is unchanged: body durable, then row, then the response."
 
@@ -161,7 +161,7 @@ The picture is the lesson. If session or file state appears inside the app box, 
 
 **Hand-waving.** "The second box is Redis." Redis does not accept the TCP connection or run the expiry check. The process was the saturated thing. A cache fixes a melted primary, which you have not shown yet.
 
-**If they ask what the user sees when one app dies.** In-flight requests on that process fail. The other two keep serving. Clients retry. A retry of a create that might have committed is a second paste. You already sold that in the API. Reads retry cleanly.
+**If they ask what the user sees when one app dies.** In-flight requests on that process fail. The other three keep serving. Clients retry. A retry of a create that might have committed is a second paste. You already sold that in the API. Reads retry cleanly.
 
 **If they ask whether the data host should keep running an app process too.** It can, and then it is a special replica with a local disk the others do not have. You refuse the special case. Apps are identical. The data host serves Postgres and the files. One role each.
 

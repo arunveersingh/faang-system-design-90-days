@@ -95,8 +95,6 @@ When the bucket returns, creates work without a migration. Outbox drains. You do
 
 ## Diagrams
 
-Mermaid stands in for the whiteboard. SVG figures come later; do not wait on them.
-
 ### One dead box
 
 ```mermaid

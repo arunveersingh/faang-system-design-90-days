@@ -86,14 +86,12 @@ Primary dies.
 
 1. Apps' writes and authoritative reads fail. Cache hits still serve, until TTL, and they still enforce `expires_at`. A cache hit cannot see a delete that happened after it was filled, which you already accepted. A cache hit **can** keep the product readable for hot links while metadata is down. Cold keys 500, not 404. Do not convert "primary unreachable" into `not_found`. That hides an outage inside the contract for missing pastes.
 2. You promote the replica. Planning window: **tens of seconds**, not zero. Say 30 seconds as a number they can hate. During it, creates fail, deletes fail, misses fail. Hits work.
-3. Apps are pointed at the new primary. You need this switch to exist: a config or a proxy, not a hard-coded host on three app boxes that you redeploy by hand during the incident. One sentence. Do not design the control plane.
+3. Apps are pointed at the new primary. You need this switch to exist: a config or a proxy, not a hard-coded host on four app boxes that you redeploy by hand during the incident. One sentence. Do not design the control plane.
 4. The old primary, if it returns with a split brain, must not accept writes. Fencing is the word. You do not explain STONITH for ten minutes. You say: a promoted replica is the only writer, and the old primary is not allowed back without a rebuild.
 
 Bodies during this window still live on the old data host's NVMe. If that host is what died, promotion of Postgres does not bring the bytes back. Reads of live rows 500 with `body_missing`. This is why the replica was not the durability story for the product. It was the durability story for the **rows**. The next day is the bytes. Do not skip ahead inside this drawing by magically moving `/data`.
 
 ## Diagrams
-
-Mermaid stands in for the whiteboard. SVG figures come later; do not wait on them.
 
 ### What is allowed to lag
 
