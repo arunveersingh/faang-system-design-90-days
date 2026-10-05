@@ -145,6 +145,8 @@ There is no list endpoint, no PATCH, no search query parameter. If you feel the 
 
 Rate limiting is not an endpoint. If they ask, the only place it changes the contract is create: too many creates from one source become 429 **before** the durable write, so you do not spend a fsync on abuse. You do not have a budget for the limiter's numbers today. Do not fake one.
 
+What staff sounds like on the API: every status code has two audiences, the client and the pager, and you name both. A 404 tells the client "gone" and tells the pager "normal." A 5xx tells the client "try again later" and tells the pager "something is wrong." Mix those up and your alerts stop meaning anything. You also say what you are declining, with its cost, before it gets requested: "no idempotency key, so a retry after a lost response is a second paste, and I can tell you roughly how many." The table below gives that number.
+
 ## Data model
 
 One table. No user table. No "paste_stats" table. The body is not a column you index and not a column you `SELECT *` casually. The row stores a pointer that day 5 will resolve to a file path derived from the id. There is no path column to get wrong.
@@ -162,6 +164,8 @@ One table. No user table. No "paste_stats" table. The body is not a column you i
 Index the primary key. Add a secondary index on `expires_at` so the sweeper can find today's garbage without scanning 450 million rows. That index is large. It is still metadata, on the order of the 135 GB budget, not a reason to introduce a second database. There is no index on `syntax`, none on `body_sha256`, none on the token hash. Delete looks up by `id` and then compares the hash.
 
 Token: 128 bits from a cryptographic generator, encoded url-safe, returned once, hashed before it hits the row. If the database leaks, old tokens are not sitting in plaintext. The client that lost the token cannot be helped. That was the trade for having no accounts.
+
+Store the absolute `expires_at`, not a TTL code plus `created_at`. The read predicate becomes one comparison against an indexed column, not arithmetic on every row. And if the allow-list changes next year, old pastes keep the deadline they were promised, with no migration. The cost is eight bytes a row, which is noise next to the 135 GB budget.
 
 ### Id width
 
@@ -225,7 +229,7 @@ erDiagram
   PASTE ||--|| BODY : "located by id"
 ```
 
-`BODY` is not a second entity you query. It is the bytes the id already names. Drawing it stops you from stuffing 10 KB to 1 MB values into the row you want to index.
+`BODY` is not a second entity you query. It is the bytes the id already names. Drawing it stops you from stuffing 10 KB to 1 MB values into the row you want to index. Notice what the picture refuses: no user, no tag, no version, no second key. Every missing entity is a non-goal from day 2 that the schema now enforces. If an interviewer asks "where would accounts go," the honest answer is "a new entity and a new read path," not a nullable `user_id` you slipped in.
 
 ### Create, as far as the model cares
 
@@ -246,6 +250,21 @@ sequenceDiagram
 
 The arrow order is the contract: bytes durable, then the row, then the response. A row that commits first can be read by someone you already handed the id to, or by a retry, before the bytes exist. You never hand the id out before commit, and you still do not commit the row first. Day 5 is where this order meets a crash. The sequence belongs here because the schema is what makes the order expressible: the row is a claim that the bytes exist.
 
+## Failure the user sees, at the contract
+
+The create sequence has no failure arrows on purpose, so that its order stays readable. Here are those failures, one arrow at a time. This table is the API's real contract.
+
+| Fails at | Creator sees | What exists afterwards | Who can read it |
+|---|---|---|---|
+| Validation | 400 or 413 | Nothing | Nobody. No id was minted. |
+| Body write | 500 | Maybe a partial temp file, no row | Nobody. The id was never returned. |
+| Row commit | 500 | A durable body with no row: an orphan | Nobody. Reads go through the row. A janitor reaps it. |
+| Response lost after commit | Timeout | A complete, live paste | Nobody holds the id. It cannot be deleted. It lives until expiry. |
+
+The last row is the cost of having no idempotency key, and you should be able to put a size on it. If 0.1% of creates lose the response after commit, that is 10,000 unreachable pastes a day, about 100 MB, all expiring on schedule. That is cheap enough to accept out loud. A retry from that client makes a second, reachable paste, which is the behavior the API already promised.
+
+On the read side: if metadata is unreachable, the answer is **503**, never 404. A 404 tells a person their paste expired, it can be cached by anything between you and them, and it does not page anyone. A live row with no body is **500** and pages `body_missing`. One more failure the schema owns: `expires_at` comes from the server clock, so a clock that jumps forward makes live pastes 404 early. On one box that is one clock under NTP. Once there are several app servers, compare against the database's `now()` so that a single bad host cannot expire everyone's links.
+
 ## Trade-offs
 
 **Choice.** Twelve-character base62 ids, never reused, unique primary key, remint on conflict.
@@ -264,6 +283,8 @@ The arrow order is the contract: bytes durable, then the row, then the response.
 
 Second trade-off, because it shows up as a schema argument: **hash the delete token, do not encrypt a reversible copy "in case support needs it."** You give up support-assisted recovery. You already gave that up when you refused accounts. A reversible secret in the row is a second copy of the bearer token waiting for a backup to leak. At 10× the number of tokens, the choice is the same. More rows do not make plaintext storage safer.
 
+Third, because it is the one a staff interviewer actually probes: **no idempotency key in v1.** The alternative is an optional `Idempotency-Key` header, stored with the resulting id for at least the client's retry window, maybe 24 hours, so a retry returns the same paste. What you give up by refusing it: duplicates on retry, and the unreachable pastes sized above. Why you still refuse it: anonymous browser clients will not keep a key across a reload, and the key table is a second unique index on every create. The trigger to reverse it is a programmatic client, such as CI jobs posting logs, retrying on timeouts. At 10× the number of duplicates grows with the error rate, not with traffic. The decision only changes when the type of client changes.
+
 ## Talking points
 
 **Say.** "Lookup is `GET` by a 12-character base62 id. I never reuse ids. Over ten years at ten million a day that's about 3.7 times 10 to the 10 mints into a 62 to the 12 space, well under one expected collision, and the primary key remints if I'm unlucky. Eight characters is too small; I checked it against the 450 million live rows, not against a vibe."
@@ -281,6 +302,18 @@ Second trade-off, because it shows up as a schema argument: **hash the delete to
 **If they ask for edit.** "That's a new id, or it's a different product with versions and cache invalidation. I'm not adding `version` to this row in this hour."
 
 **If they ask where the file path is stored.** "Derived from the id, so there's nothing to diverge. If I later pack bytes into volumes, the row grows an offset and a length. Not before I need it."
+
+**Say.** "If metadata is down, reads get 503, not 404. A 404 tells a person their paste is gone and tells my pager everything is normal. Both would be lies."
+
+**Hand-waving.** "Return 404 if the database is unavailable, it's the safe default." It is the unsafe default. It hides an outage behind a normal miss, and an intermediary may cache it.
+
+**If they ask for idempotency.** "That's a new requirement and a new table: key to id, kept for the retry window, enforced by a unique constraint. Is this a browser product, or are scripts retrying?"
+
+**If they ask about clocks.** "The server sets `expires_at`, never the client. With more than one app host, I'd evaluate expiry against the database clock so that one host's skew cannot expire links early."
+
+## Say this in the room
+
+Three calls. POST a raw text body with a TTL from the allow-list, and get back a 12-character base62 id, the expiry, and a delete token, once. GET by id returns `text/plain` with `nosniff`, or one 404 for missing, expired, or deleted. DELETE with the token returns 204, or that same 404. One table keyed by the id, which is never reused; at ten million a day for ten years, that is well under one expected collision, and the unique key remints if I'm unlucky. The token is stored as a SHA-256 hash. The only secondary index is `expires_at`, for the sweeper. The read checks expiry itself. Bytes are durable before the row commits, and the row commits before I return the id. If metadata is down, reads are 503, not 404. Creates are not idempotent: a lost response leaves a paste nobody can reach until it expires, and I've sized that as cheap.
 
 ## Kit artifact
 
