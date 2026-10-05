@@ -1,5 +1,5 @@
 <!-- day-nav -->
-[← Start](../START.md) · [Day 2 — Vague problem to requirements →](02-vague-prompt-to-requirements.md)
+[← Start](../START.md) · [Day 2 — Vague problem to requirements →](02-vague-problem-to-requirements.md)
 
 # Day 1 — What the interviewer is grading
 
@@ -17,11 +17,11 @@
 |---|---|
 | 0–8 | Attempt below. Stop when the time is up, even if the list is short. |
 | 8–28 | Read the rest of this page. |
-| 28–35 | Close it and say, out loud, how you will spend a 35-minute loop. No boxes yet. |
+| 28–35 | Close it and say, out loud, how you will spend a 35-minute interview. No boxes yet. |
 
 ## Intent
 
-Facing a senior or staff loop, leave able to separate graded signal from a technology tour. The signals are scope, numbers, a lookup key, a design that matches those numbers, a trade-off, and what the user sees when something dies.
+Facing a senior or staff interview, leave able to separate graded signal from a technology tour. The signals are scope, numbers, a lookup key, a design that matches those numbers, a trade-off, and what the user sees when something dies.
 
 The running product this week is a pastebin. Today you do not design it. You decide what a good hour on it would even be.
 
@@ -31,13 +31,13 @@ The interviewer says:
 
 > Design a pastebin. People paste text and share a link.
 
-That is the whole prompt. Same sentence all week. On day 7 it is closed-book.
+That is the whole problem. Same sentence all week. On day 7 it is closed-book.
 
 ## Attempt before reading
 
 Set a timer for 8 minutes. Do not scroll. On paper, write:
 
-1. Six things you believe this loop actually grades.
+1. Six things you believe this interview actually grades.
 2. A minute-by-minute spend of 35 minutes.
 3. Five technologies you will not mention unless asked.
 4. Three questions you would ask before drawing anything.
@@ -54,7 +54,7 @@ If you drew a queue, a cache, and three databases, that page is the anti-pattern
 
 A senior or staff interviewer is not scoring vocabulary. They are scoring whether you can shrink a vague product, attach numbers, and live with the consequences. The hour has six signals. Everything else is optional color.
 
-| Signal | What "good" sounds like on this prompt | What does not count |
+| Signal | What "good" sounds like on this problem | What does not count |
 |---|---|---|
 | Scope | You lock what a paste is, who can read it, and what you will not build, before any box. | A feature list that grows while you draw. |
 | Numbers | QPS, stored bytes, and bandwidth, each with the assumption that produced it. | "High traffic" or a single QPS with no division. |
@@ -65,7 +65,7 @@ A senior or staff interviewer is not scoring vocabulary. They are scoring whethe
 
 Staff credit is not a seventh signal called "more boxes." It is a sharper trade-off and a failure you can operate. A staff answer often has **fewer** components than a senior answer that got nervous.
 
-What staff sounds like on this prompt: you name the non-goal before they ask; you refuse a tier with a unit, not a vibe; when they pull one deep dive, you stay there for five minutes instead of renaming every box. The deep dive they usually pull on a pastebin is durability of create, the id space, expiry correctness, or the box dying. If you spent minute 12 inventing a bus, you have no time left when they ask the real question.
+What staff sounds like on this problem: you name the non-goal before they ask; you refuse a tier with a unit, not a vibe; when they pull one deep dive, you stay there for five minutes instead of renaming every box. The deep dive they usually pull on a pastebin is durability of create, the id space, expiry correctness, or the box dying. If you spent minute 12 inventing a bus, you have no time left when they ask the real question.
 
 Communication is the medium, not a separate project. You structure the hour, you stop talking, you let them pull one deep dive. A beautiful design they could not follow is a miss. Silence after a locked non-goal is signal. Filling the silence with Kafka is not.
 
@@ -74,7 +74,7 @@ Communication is the medium, not a separate project. You structure the hour, you
 - Vendor names, unless they ask what you would run. Say the access pattern first.
 - Protocol derivations. Consensus, when you need it at all, is a dependency with an unavailable window. That is not this week.
 - Syntax highlighting, malware scanning, search, accounts, a public "trending" page. Those are other products.
-- AI or ML. Nothing in this course, and nothing in this loop, asks you to rank or classify pastes.
+- AI or ML. Nothing in this course, and nothing in this interview, asks you to rank or classify pastes.
 - Drawing the end-state multi-region system in the first ten minutes.
 
 If you hear yourself say "we'll just use Kafka," you have left the rubric. There is no async work in the basic pastebin: the user is waiting for the link, and the reader is waiting for the bytes.
@@ -126,7 +126,7 @@ You should be able to redraw both of these without the page. They are diagrams o
 
 ```mermaid
 flowchart LR
-  prompt[One-line prompt] --> scope[Scope and non-goals]
+  problem[One-line problem] --> scope[Scope and non-goals]
   scope --> numbers[Estimates with assumptions]
   numbers --> api[API and lookup key]
   api --> design[Smallest design that fits]
@@ -134,7 +134,7 @@ flowchart LR
   trade --> fail[One failure the user sees]
 ```
 
-Six stops, in order. Skipping from the prompt to "design" is how a tour starts. If you cannot redraw this sequence from memory, you do not own the hour yet, whatever pastebin you could draw.
+Six stops, in order. Skipping from the problem to "design" is how a tour starts. If you cannot redraw this sequence from memory, you do not own the hour yet, whatever pastebin you could draw.
 
 ### Graded signal versus a tour
 
@@ -187,7 +187,7 @@ What does not count as failure signal: "we'll have replicas" with no sentence ab
 
 **Hand-waving.** "We'll use a microservice architecture." That sentence has no user, no number, and no failure.
 
-**Hand-waving.** "Kafka for scale." Nothing in the prompt is asynchronous. Naming a log does not create work that can wait.
+**Hand-waving.** "Kafka for scale." Nothing in the problem is asynchronous. Naming a log does not create work that can wait.
 
 **Hand-waving.** "Cassandra because it scales horizontally." You have not shown a query the single primary key cannot serve.
 
@@ -217,11 +217,11 @@ The kit's grader, later, should score that row by quoting the candidate. It shou
 
 Copy [the template](../design-log/TEMPLATE.md) only if you want to keep today. Mocks are mandatory; lesson days are not.
 
-Prompt for today, five lines: the six signals you will actually practice, and one sentence you will stop saying in interviews. That sentence is the gap.
+For today, five lines: the six signals you will actually practice, and one sentence you will stop saying in interviews. That sentence is the gap.
 
-Next: [Day 2 — Vague problem to requirements](02-vague-prompt-to-requirements.md).
+Next: [Day 2 — Vague problem to requirements](02-vague-problem-to-requirements.md).
 
 ---
 
 <!-- day-nav -->
-[← Start](../START.md) · [Day 2 — Vague problem to requirements →](02-vague-prompt-to-requirements.md)
+[← Start](../START.md) · [Day 2 — Vague problem to requirements →](02-vague-problem-to-requirements.md)

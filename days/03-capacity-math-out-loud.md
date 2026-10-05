@@ -1,5 +1,5 @@
 <!-- day-nav -->
-[← Day 2 — Vague problem to requirements](02-vague-prompt-to-requirements.md) · [Day 4 — API and data model first →](04-api-and-data-model-first.md)
+[← Day 2 — Vague problem to requirements](02-vague-problem-to-requirements.md) · [Day 4 — API and data model first →](04-api-and-data-model-first.md)
 
 # Day 3 — Capacity math out loud
 
@@ -257,4 +257,4 @@ Next: [Day 4 — API and data model first](04-api-and-data-model-first.md).
 ---
 
 <!-- day-nav -->
-[← Day 2 — Vague problem to requirements](02-vague-prompt-to-requirements.md) · [Day 4 — API and data model first →](04-api-and-data-model-first.md)
+[← Day 2 — Vague problem to requirements](02-vague-problem-to-requirements.md) · [Day 4 — API and data model first →](04-api-and-data-model-first.md)

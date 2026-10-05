@@ -3,7 +3,7 @@
 
 - **Phase 1**
   - [Day 1 — What the interviewer is grading](/days/01-what-the-interview-is-grading.md)
-  - [Day 2 — Vague problem to requirements](/days/02-vague-prompt-to-requirements.md)
+  - [Day 2 — Vague problem to requirements](/days/02-vague-problem-to-requirements.md)
   - [Day 3 — Capacity math out loud](/days/03-capacity-math-out-loud.md)
   - [Day 4 — API and data model first](/days/04-api-and-data-model-first.md)
   - [Day 5 — One box, and why it breaks](/days/05-one-box-and-why-it-breaks.md)
