@@ -1,10 +1,10 @@
 # Curriculum
 
-> **This is the map, not today's lesson.** Days 1–28 are written. Start at [Day 1](days/01-what-the-interview-is-grading.md). Days 29–90 are titles until a page exists.
+> **This is the map, not today's lesson.** Days 1–49 are written. Start at [Day 1](days/01-what-the-interview-is-grading.md). Days 50–90 are titles until a page exists.
 
 Interview-depth system design for senior and staff loops. One day, one sitting. Pure distributed systems: no AI or ML lessons.
 
-This file is the 90-day assignment list, adapted from the course topic list for this repo. **Phase 1 (days 1–7) and Phase 2 (days 8–28) are written** under `days/`. Days 29–90 are assigned below and are not in the repo yet. Do not treat a title as a lesson until a page exists.
+This file is the 90-day assignment list, adapted from the course topic list for this repo. **Phase 1 (days 1–7), Phase 2 (days 8–28), and Phase 3 (days 29–49) are written** under `days/`. Days 50–90 are assigned below and are not in the repo yet. Do not treat a title as a lesson until a page exists.
 
 Problem pages under [`prompts/`](prompts/README.md) are the problem bank. The folder is still named `prompts/`. If a problem file is updated, **the problem file wins** over a title here. Read the problem page on this site before a mock.
 
@@ -68,34 +68,31 @@ Each new box is a fix for a break in the pastebin, not a catalog of tools. Day 2
 
 ## Phase 3 — Data and consistency (Days 29–49)
 
-**Coming. Not written.** These rows are titles only. They are not links, so there is no empty page to open.
-
-
-Guarantees, keys, and the failure you accept. Consensus stays a dependency; Raft is appendix reading, not this phase.
+Guarantees, keys, and the failure you accept. The pastebin is still the worked example. Consensus stays a dependency; Raft is appendix reading, not this phase. Day 49 is a different problem. Do not treat this map as the design that mock requires.
 
 | Day | Title | Type | Intent |
 |---|---|---|---|
-| 29 | The guarantee per operation | Lesson | Facing the word "consistent," leave able to state the guarantee per operation instead of one label for the whole system. |
-| 30 | Linearizability and what you refuse | Lesson | Facing a demand for linearizability, leave able to say which operations need it and which you will refuse. |
-| 31 | Partition key, hash, and range | Lesson | Facing one hot database, leave able to pick a partition key and say what hash versus range gives up. |
-| 32 | Hot keys and salting | Lesson | Facing a celebrity key, leave able to salt or split it without destroying the lookup you still need. |
-| 33 | Invalidation and TTL | Lesson | Facing stale or thundering cache entries, leave able to choose invalidation or TTL and the stale window you accept. |
-| 34 | Lag, monotonic reads, read-your-writes | Lesson | Facing replica lag, leave able to give the right operations monotonic reads or read-your-writes. |
-| 35 | Quorums in plain language | Lesson | Facing a quorum design, leave able to explain what N, R, and W buy and the unavailable or stale outcome you took. |
-| 36 | A leader is a dependency | Lesson | Facing a single-writer partition, leave able to treat leader election as a dependency with an unavailable window, not as a protocol lecture. |
-| 37 | Idempotency on an at-least-once path | Lesson | Facing retries, leave able to make an at-least-once write safe with idempotency keys and name what can still arrive twice. |
-| 38 | Dedupe and the inbox | Lesson | Facing a consumer that can see a message twice, leave able to dedupe with an inbox and a defined retention for those keys. |
-| 39 | Outbox, not dual write | Lesson | Facing a write that must also become a message, leave able to replace a dual write with an outbox. |
-| 40 | Transactions that stop at the shard | Lesson | Facing a multi-row change, leave able to draw the transaction at one shard and pick an isolation level on purpose. |
-| 41 | Sagas and compensation | Lesson | Facing a workflow that crosses partitions, leave able to use a saga and name the compensation and the crash window. |
-| 42 | Conflicts you can explain | Lesson | Facing two writers, leave able to choose versions, last write, or a merge, and say when a CRDT is worth naming. |
-| 43 | Active-passive or active-active | Lesson | Facing users in more than one region, leave able to choose a write topology and the conflict or failover cost that comes with it. |
-| 44 | Clocks, ids, and order | Lesson | Facing order across machines, leave able to pick ids and a clock story and name the reorder bug you still have. |
-| 45 | Schema change and backfill | Lesson | Facing a schema that must change, leave able to plan expand, backfill, and cutover without stopping writes, plus a rollback. |
-| 46 | Delete, tombstone, retention | Lesson | Facing a delete, leave able to use tombstones and retention so replicas and indexes do not resurrect the row. |
-| 47 | Secondary indexes and data-path cost | Lesson | Facing an extra index or replica, leave able to state the write amplification, storage class, or egress you just bought. |
-| 48 | Close the data chapter | Lesson | Facing the end of the data section, leave able to close on guarantee, partition plan, and the failure you accept. |
-| 49 | Mock: warehouse inventory reservation | Mock | Facing a problem that is not this week's schema, index, or retention lesson, leave able to reserve inventory on a partition key without overselling, then log a self-score. |
+| 29 | [The guarantee per operation](days/29-the-guarantee-per-operation.md) | Lesson | Facing the word "consistent," leave able to state the guarantee per operation instead of one label for the whole system. |
+| 30 | [Linearizability and what you refuse](days/30-linearizability-and-what-you-refuse.md) | Lesson | Facing a demand for linearizability, leave able to say which operations need it and which you will refuse. |
+| 31 | [Partition key, hash, and range](days/31-partition-key-hash-and-range.md) | Lesson | Facing one hot database, leave able to pick a partition key and say what hash versus range gives up. |
+| 32 | [Hot keys and salting](days/32-hot-keys-and-salting.md) | Lesson | Facing a celebrity key, leave able to salt or split it without destroying the lookup you still need. |
+| 33 | [Invalidation and TTL](days/33-invalidation-and-ttl.md) | Lesson | Facing stale or thundering cache entries, leave able to choose invalidation or TTL and the stale window you accept. |
+| 34 | [Lag, monotonic reads, read-your-writes](days/34-lag-monotonic-reads-read-your-writes.md) | Lesson | Facing replica lag, leave able to give the right operations monotonic reads or read-your-writes. |
+| 35 | [Quorums in plain language](days/35-quorums-in-plain-language.md) | Lesson | Facing a quorum design, leave able to explain what N, R, and W buy and the unavailable or stale outcome you took. |
+| 36 | [A leader is a dependency](days/36-a-leader-is-a-dependency.md) | Lesson | Facing a single-writer partition, leave able to treat leader election as a dependency with an unavailable window, not as a protocol lecture. |
+| 37 | [Idempotency on an at-least-once path](days/37-idempotency-on-an-at-least-once-path.md) | Lesson | Facing retries, leave able to make an at-least-once write safe with idempotency keys and name what can still arrive twice. |
+| 38 | [Dedupe and the inbox](days/38-dedupe-and-the-inbox.md) | Lesson | Facing a consumer that can see a message twice, leave able to dedupe with an inbox and a defined retention for those keys. |
+| 39 | [Outbox, not dual write](days/39-outbox-not-dual-write.md) | Lesson | Facing a write that must also become a message, leave able to replace a dual write with an outbox. |
+| 40 | [Transactions that stop at the shard](days/40-transactions-that-stop-at-the-shard.md) | Lesson | Facing a multi-row change, leave able to draw the transaction at one shard and pick an isolation level on purpose. |
+| 41 | [Sagas and compensation](days/41-sagas-and-compensation.md) | Lesson | Facing a workflow that crosses partitions, leave able to use a saga and name the compensation and the crash window. |
+| 42 | [Conflicts you can explain](days/42-conflicts-you-can-explain.md) | Lesson | Facing two writers, leave able to choose versions, last write, or a merge, and say when a CRDT is worth naming. |
+| 43 | [Active-passive or active-active](days/43-active-passive-or-active-active.md) | Lesson | Facing users in more than one region, leave able to choose a write topology and the conflict or failover cost that comes with it. |
+| 44 | [Clocks, ids, and order](days/44-clocks-ids-and-order.md) | Lesson | Facing order across machines, leave able to pick ids and a clock story and name the reorder bug you still have. |
+| 45 | [Schema change and backfill](days/45-schema-change-and-backfill.md) | Lesson | Facing a schema that must change, leave able to plan expand, backfill, and cutover without stopping writes, plus a rollback. |
+| 46 | [Delete, tombstone, retention](days/46-delete-tombstone-retention.md) | Lesson | Facing a delete, leave able to use tombstones and retention so replicas and indexes do not resurrect the row. |
+| 47 | [Secondary indexes and data-path cost](days/47-secondary-indexes-and-data-path-cost.md) | Lesson | Facing an extra index or replica, leave able to state the write amplification, storage class, or egress you just bought. |
+| 48 | [Close the data chapter](days/48-close-the-data-chapter.md) | Lesson | Facing the end of the data section, leave able to close on guarantee, partition plan, and the failure you accept. |
+| 49 | [Mock: warehouse inventory reservation](days/49-mock-warehouse-inventory-reservation.md) | Mock | Facing a problem that is not this week's schema, index, or retention lesson, leave able to reserve inventory on a partition key without overselling, then log a self-score. |
 
 ## Phase 4 — Product-shaped systems (Days 50–77)
 

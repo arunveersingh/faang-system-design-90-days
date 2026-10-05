@@ -4,7 +4,7 @@ Copy this file into your own notes. Do not fill it in on the template itself.
 
 - Date (PT or your local label; be consistent):
 - Day:
-- Prompt (one line, as given):
+- Problem (one line, as given):
 - Time used:
 - Notes open during the attempt? (a mock is no):
 

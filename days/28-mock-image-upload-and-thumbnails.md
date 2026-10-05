@@ -1,5 +1,5 @@
 <!-- day-nav -->
-[← Day 27 — Red-team before they do](27-red-team-before-they-do.md) · [Checklist →](../CHECKLIST.md)
+[← Day 27 — Red-team before they do](27-red-team-before-they-do.md) · [Day 29 — The guarantee per operation →](29-the-guarantee-per-operation.md)
 
 # Day 28 — Mock: image upload and thumbnails
 
@@ -252,9 +252,9 @@ Uploads are about 12 a second because a million a day divided by 86,400 is about
 
 One amendment line: the concrete miss (the ack waited on resize, the bytes were on local disk, not-ready was a 500, the hot image had no edge, the worker was not safe twice). Leave the scores alone.
 
-Tomorrow is phase 3, which is not in the repo yet. Do not start it by inventing a consistency lecture on top of this reference. The curriculum is the map.
+Next: [Day 29 — The guarantee per operation](29-the-guarantee-per-operation.md). Phase 3 is guarantees, keys, and failures on purpose. Do not turn this reference into that lecture.
 
 ---
 
 <!-- day-nav -->
-[← Day 27 — Red-team before they do](27-red-team-before-they-do.md) · [Checklist →](../CHECKLIST.md)
+[← Day 27 — Red-team before they do](27-red-team-before-they-do.md) · [Day 29 — The guarantee per operation →](29-the-guarantee-per-operation.md)
