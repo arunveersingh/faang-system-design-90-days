@@ -17,7 +17,7 @@
 |---|---|
 | 0–10 | Attempt. What fails when the shard has no leader, for how long, and what must not accept a write from the old one. |
 | 10–28 | Read. If you explained an election protocol, delete it and keep the window. |
-| 28–35 | Say the dependency in four beats: one writer, a window, a fence, a user-visible 503. |
+| 28–35 | Say who writes, the window, what the old writer must not do, and what the client sees. |
 
 ## Intent
 

@@ -42,7 +42,7 @@ Write:
 
 ---
 
-**Stop. Expand, backfill, cut over, and a rollback that leaves the column, below.**
+**Stop. The order, the alter, the backfill, and the rollback are below. Do not edit the attempt first.**
 
 ---
 

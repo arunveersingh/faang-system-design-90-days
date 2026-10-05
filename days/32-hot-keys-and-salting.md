@@ -16,7 +16,7 @@
 | Minutes | Do this |
 |---|---|
 | 0–12 | Attempt. One celebrity key, the shard it sticks to, and a salt that still lets you read it back. |
-| 12–32 | Read. If the salt is not part of the partition key, your shard is as hot as it was. |
+| 12–32 | Read. Check whether the salt changed which shard the writes hit. |
 | 32–40 | Say what you would salt, what you would not, and the fan-in on the read. |
 
 ## Intent
@@ -42,7 +42,7 @@ Write:
 
 ---
 
-**Stop. Salt the counter, not the paste, below. And only if you lost the argument to refuse it.**
+**Stop. Worked hot-key decision below. Do not revise the salt you drew.**
 
 ---
 

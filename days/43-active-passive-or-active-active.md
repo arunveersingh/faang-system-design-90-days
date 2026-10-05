@@ -42,7 +42,7 @@ Write:
 
 ---
 
-**Stop. Active-passive for this pastebin, below. The cost is failover, not a merge.**
+**Stop. The topology and the failure you priced are below. Do not change the attempt to match.**
 
 ---
 

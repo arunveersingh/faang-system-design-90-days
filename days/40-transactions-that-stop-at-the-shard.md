@@ -42,7 +42,7 @@ Write:
 
 ---
 
-**Stop. One shard, one level, a hard edge, below.**
+**Stop. The transaction boundary and the isolation level are below. Your level stays on the attempt until you compare.**
 
 ---
 
@@ -135,10 +135,10 @@ flowchart LR
   end
   put[Object PUT] -.->|before commit| shard
   purge[CDN purge] -.->|after, via outbox| shard
-  other[Other shard] ===|no BEGIN across| ban[Not in this transaction]
+  other[Other shard] --x|no BEGIN across| ban[Not in this transaction]
 ```
 
-Solid is atomic. Dotted is ordered but not atomic with the rows. The double bar is the refusal.
+Solid is atomic. Dotted is ordered but not atomic with the rows. The link that stops is the refusal.
 
 ## Trade-offs
 

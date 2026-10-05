@@ -16,12 +16,12 @@
 | Minutes | Do this |
 |---|---|
 | 0–12 | Attempt. The key, hash or range, and the query that gets worse. Do not draw shards you cannot justify with a ceiling. |
-| 12–32 | Read. If you ranged on time, check where today's writes landed. |
+| 12–32 | Read. Check where today's writes land on the scheme you picked. |
 | 32–40 | Say the key, what you gave up, and whether today's traffic even shards. |
 
 ## Intent
 
-Facing one hot database, leave able to pick a partition key and say what hash versus range gives up. The key is a decision about queries. The shard count is arithmetic you do after, and it may be one.
+Facing one hot database, leave able to pick a partition key and say what hash versus range gives up. The key is a decision about queries. The shard count is arithmetic you do after, from a ceiling you state.
 
 ## Problem
 
@@ -42,7 +42,7 @@ Write:
 
 ---
 
-**Stop. The key is the id, hashed, below. Today's count is one.**
+**Stop. The worked key, hash or range, and the shard counts are below. Do not copy them onto the attempt.**
 
 ---
 

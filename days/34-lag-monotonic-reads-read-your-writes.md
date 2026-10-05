@@ -16,7 +16,7 @@
 | Minutes | Do this |
 |---|---|
 | 0–12 | Attempt. Who may read a lagging replica, and how the creator's next GET is different from a stranger's. |
-| 12–32 | Read. If a replica miss becomes a 404, you just deleted a live paste in public. |
+| 12–32 | Read. Check what you return when the replica has no row. |
 | 32–40 | Say read-your-writes and monotonic reads as two different bugs, each with the mechanism. |
 
 ## Intent
@@ -42,7 +42,7 @@ Write:
 
 ---
 
-**Stop. Session guarantees below. The replica stays off the interactive GET until a ceiling forces it.**
+**Stop. Worked session rules below. Your call on today's primary reads stays on your page.**
 
 ---
 

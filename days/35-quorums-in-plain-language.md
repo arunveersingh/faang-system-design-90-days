@@ -17,7 +17,7 @@
 |---|---|
 | 0–12 | Attempt. Pick N, R, and W. Say what a write waits for, and the outcome you took: unavailable, or stale. |
 | 12–28 | Read. If W + R is only equal to N, find the read that misses the write. |
-| 28–35 | Say why this pastebin still has a leader, in one sentence, after you have explained the quorum you did not buy. |
+| 28–35 | Say whether you replace the primary, in one sentence, after you have the integers. |
 
 ## Intent
 
@@ -42,7 +42,7 @@ Write:
 
 ---
 
-**Stop. Overlap, staleness, and unavailability below. The pastebin keeps its leader.**
+**Stop. Overlap, staleness, and unavailability below. Your yes or no on replacing the primary stays on your page.**
 
 ---
 

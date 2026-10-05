@@ -37,7 +37,7 @@ Write four lines, one each for POST, origin GET, edge GET, and DELETE. Each line
 
 ---
 
-**Stop. Per-operation guarantees below. One label for the product is not.**
+**Stop. Worked per-call promises below. Leave the four lines you wrote. Do not revise them to match.**
 
 ---
 

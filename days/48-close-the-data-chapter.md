@@ -130,7 +130,7 @@ If you need a fourth box, it is not part of the close.
 
 ## Say this in the room
 
-A 201 is a commit on the leader of one shard, together with the idempotency row, and an edge read can still show a deleted paste for 60 seconds. I hash into 256 slots, I run one shard at today's 350 commits a second, and I would run four around 3,500, each with its own replica. A dead leader is about 30 seconds of 503 on writes and cache misses, not a 404, and not a protocol I draw. The failure I am not fixing is that 60-second edge, and the async tail that can lose a 201. I am not adding a second writer region or a body merge to make the close look finished.
+A 201 is a commit on the leader of one shard, together with the idempotency row, and an edge read can still show a deleted paste for 60 seconds. I hash into 256 slots, I run one shard at today's 350 commits a second, and at about 3,500 commits a second I would run four shards, about 875 a second each, each with its own replica. A dead leader is about 30 seconds of 503 on writes and cache misses, not a 404, and not a protocol I draw. The failure I am not fixing is that 60-second edge, and the async tail that can lose a 201. I am not adding a second writer region or a body merge to make the close look finished.
 
 ## Kit artifact
 

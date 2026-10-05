@@ -42,7 +42,7 @@ Write:
 
 ---
 
-**Stop. Three bills, below: writes, disks, and pipes. The syntax index is refused.**
+**Stop. The three bills are below. Your yes or no on the syntax index stays on your page.**
 
 ---
 

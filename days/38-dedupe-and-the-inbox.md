@@ -38,11 +38,11 @@ Write:
 1. The id inside the message that stays the same across redelivery. If you use the broker's delivery id, say what happens on the second attempt.
 2. Whether you insert the inbox row before the object delete and the purge, or after. What a crash at that point does on the retry.
 3. How long the inbox row lives, and what a redelivery after that does.
-4. Whether the inbox alone makes a non-idempotent effect safe. It does not. Name the effect you still refuse to run twice even with an inbox.
+4. Whether the inbox alone makes a non-idempotent effect safe. Name the effect you still refuse to run twice even with an inbox, or say there is none and why.
 
 ---
 
-**Stop. Inbox after a successful idempotent effect, with a retention, below.**
+**Stop. Worked inbox below. Check it against the crash and the order you wrote.**
 
 ---
 

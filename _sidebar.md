@@ -33,10 +33,6 @@
   - [Day 27 — Red-team before they do](/days/27-red-team-before-they-do.md)
   - [Day 28 — Mock: image upload and thumbnails](/days/28-mock-image-upload-and-thumbnails.md)
 
-- [Curriculum (map)](/CURRICULUM.md)
-- [Progress checklist](/CHECKLIST.md)
-- [For authors](/PROPOSAL.md)
-
 - **Phase 3**
   - [Day 29 — The guarantee per operation](/days/29-the-guarantee-per-operation.md)
   - [Day 30 — Linearizability and what you refuse](/days/30-linearizability-and-what-you-refuse.md)
@@ -59,6 +55,10 @@
   - [Day 47 — Secondary indexes and data-path cost](/days/47-secondary-indexes-and-data-path-cost.md)
   - [Day 48 — Close the data chapter](/days/48-close-the-data-chapter.md)
   - [Day 49 — Mock: warehouse inventory reservation](/days/49-mock-warehouse-inventory-reservation.md)
+
+- [Curriculum (map)](/CURRICULUM.md)
+- [Progress checklist](/CHECKLIST.md)
+- [For authors](/PROPOSAL.md)
 
 - **Phase 4+ coming**
   - Days 50–90 are not written. No pages, so nothing to click.

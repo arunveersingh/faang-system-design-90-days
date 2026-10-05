@@ -42,7 +42,7 @@ Write:
 
 ---
 
-**Stop. Random ids stay. The primary's clock expires. The reorder is named and mostly unobservable.**
+**Stop. Which id you keep, which clock may expire a paste, and the reorder a client can see, are below.**
 
 ---
 

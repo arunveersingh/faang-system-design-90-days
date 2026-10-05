@@ -42,7 +42,7 @@ Write:
 
 ---
 
-**Stop. One commit, a retention, and the duplicates that remain, below.**
+**Stop. Worked retry contract below. The duplicate you named stays on your page.**
 
 ---
 
@@ -62,18 +62,26 @@ GET and DELETE do not get this treatment. GET is already safe. DELETE is already
 
 The key chooses the slot: `slot = hash(idempotency key) mod 256`. The paste id is minted **on that slot**, and the id **carries the slot** in its first two characters (base62), with the same twelve random characters as day 4 after them. The URL grows by two characters. You do not steal those two from the twelve. Day 4's collision budget was for twelve random characters over the whole mint rate. Eating them to encode a slot would reopen a width argument you already closed. GET routes by decoding the prefix. It does **not** hash the whole id. Hashing the id would send the read to whatever shard the random characters imply, which is not the shard the key chose, and the row would 404 on a live paste.
 
-In **one** transaction on that shard:
+The metadata is **one** transaction on that shard. The PUT is not in it.
 
 1. Look up the key.
 2. If it is present and the request hash matches, return the stored 201. Do not insert. Do not PUT.
 3. If it is present and the hash differs, 409.
-4. If it is absent, PUT the object, then insert the paste row, the idempotency row (key, request hash, response body, `expires_at`), and commit.
+4. If it is absent, PUT the object **outside** any open transaction, then insert the paste row and the idempotency row (key, request hash, response body, `expires_at`) in one commit.
 
-The PUT is still outside the transaction, before the commit, as on day 14. A crash after PUT and before commit leaves an orphan and **no** idempotency row. The retry is a new attempt from the database's point of view. It mints a new id, PUTs a new object, and commits once. The user still has one paste. The first object is the reaper's problem, with the same age floor as before. That is not a double paste. That is the orphan you already priced.
+The PUT stays outside the transaction, before the commit, as on day 14. Holding `BEGIN` across the PUT pins the primary for a network write. A crash after PUT and before commit leaves an orphan and **no** idempotency row. The retry is a new attempt from the database's point of view. It mints a new id, PUTs a new object, and commits once. The user still has one paste. The first object is the reaper's problem, with the same age floor as before. That is not a double paste. That is the orphan you already priced.
 
 A crash **after** commit, before the client sees the bytes: the retry finds the row and returns the stored 201. One paste. This is the case the key is for.
 
 If the idempotency insert and the paste insert are two commits, a crash between them is the bug you think you fixed. Retry does not find the key, inserts a second paste. **Same commit or it is not idempotency.** It is a log you hoped would be consulted.
+
+### Two requests in flight, one key
+
+The opening lookup is not a lock. Two requests with the same key can both see absence. Because the PUT is outside the commit, both may PUT an object, minting two ids on the same slot, and both may then enter the short transaction that inserts the paste and the key.
+
+The key is unique. One transaction commits. The other hits the unique violation and **must abort**. It re-reads the winner. Same request hash: return that stored 201. Do not insert again, and do not turn the violation into a 500 the client will "fix" with a new key. A different hash is still a 409. The loser's object is an orphan. The reaper and the age floor already exist for that. A blind retry of the handler, same key, now finds the row and returns it. That path is the success case, not a second paste.
+
+"I looked and the key was not there" is not idempotency. Read committed loses this race on purpose. Repeatable read does not remove it either, because both snapshots can start before either commit. The unique index is the serialization. Day 40 names the level. Today the point is the conflict path: abort, re-read, return the winner, reap the extra object.
 
 Do not put this key in a global table "because keys are not ids." A global table is a second shard for every create, and the two commits will drift. Colocation is the design. The prefix on the id is the cost.
 
@@ -135,7 +143,7 @@ A different body with the same K returns 409 and does not enter this picture as 
 
 ## Say this in the room
 
-The client sends one idempotency key and reuses it on retry, and I store it in the same commit as the paste, on the shard the key hashes to, with that slot written into the id. A retry with the same key and body gets the stored 201, including the delete token, and a different body is a 409. I keep the key 25 hours, about 10.4 million rows and about 5 GB, and after that a retry is a new paste on purpose. A client that mints a new key per click still gets two pastes. So does any side effect outside that commit, the object PUT and later the worker.
+The client sends one idempotency key and reuses it on retry, and I store it in the same commit as the paste, on the shard the key hashes to, with that slot written into the id. A retry with the same key and body gets the stored 201, including the delete token, a different body is a 409, and two in-flight calls lose on the unique key, abort, and re-read instead of both committing. I keep the key 25 hours, about 10.4 million rows and about 5.3 GB, and after that a retry is a new paste on purpose. A client that mints a new key per click still gets two pastes. So does any side effect outside that commit, the object PUT and later the worker.
 
 ## Kit artifact
 

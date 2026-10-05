@@ -92,7 +92,7 @@ Guarantees, keys, and the failure you accept. The pastebin is still the worked e
 | 46 | [Delete, tombstone, retention](days/46-delete-tombstone-retention.md) | Lesson | Facing a delete, leave able to use tombstones and retention so replicas and indexes do not resurrect the row. |
 | 47 | [Secondary indexes and data-path cost](days/47-secondary-indexes-and-data-path-cost.md) | Lesson | Facing an extra index or replica, leave able to state the write amplification, storage class, or egress you just bought. |
 | 48 | [Close the data chapter](days/48-close-the-data-chapter.md) | Lesson | Facing the end of the data section, leave able to close on guarantee, partition plan, and the failure you accept. |
-| 49 | [Mock: warehouse inventory reservation](days/49-mock-warehouse-inventory-reservation.md) | Mock | Facing a problem that is not this week's schema, index, or retention lesson, leave able to reserve inventory on a partition key without overselling, then log a self-score. |
+| 49 | [Mock: warehouse inventory reservation](days/49-mock-warehouse-inventory-reservation.md) | Mock | Facing a problem that is not this week's schema, index, or retention lesson, leave able to reserve inventory so two buyers cannot take the last unit, then log a self-score. |
 
 ## Phase 4 — Product-shaped systems (Days 50–77)
 

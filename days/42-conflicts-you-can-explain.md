@@ -42,7 +42,7 @@ Write:
 
 ---
 
-**Stop. Conditional writes under one leader. LWW only with a named clock. No CRDT for opaque text.**
+**Stop. The rule for one leader, the rule for two, and whether you name a CRDT, are below.**
 
 ---
 

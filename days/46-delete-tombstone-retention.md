@@ -42,7 +42,7 @@ Write:
 
 ---
 
-**Stop. Tombstones only where a hole would be replayed as data, below.**
+**Stop. Which copy needs a tombstone, and for how long, is below.**
 
 ---
 

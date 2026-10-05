@@ -42,7 +42,7 @@ Write:
 
 ---
 
-**Stop. Two layers, two mechanisms, below.**
+**Stop. Worked invalidation and TTL below. Compare the two windows to the ones you wrote.**
 
 ---
 

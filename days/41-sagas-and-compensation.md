@@ -17,7 +17,7 @@
 |---|---|
 | 0–12 | Attempt. A workflow that crosses a boundary. Name each step, the compensation, and the crash window that compensation gets wrong. |
 | 12–32 | Read. If every failure "rolls back," you drew a transaction, not a saga. |
-| 32–40 | Say the window where the compensation would delete a paste that actually committed. |
+| 32–40 | Say the compensation that is unsafe, and the crash window that makes it unsafe. |
 
 ## Intent
 
@@ -83,6 +83,12 @@ Each of 2, 4, and 5 is a local commit. None of them is a distributed commit. Bet
 Pending is not "failed." A worker that treats every pending older than the create budget as aborted will abort keys whose step 4 is still in flight, or whose step 4 **committed** and step 5 has not. The create budget is **2 seconds**. The recovery sweep must wait longer than a stuck create, not longer than a healthy one. Planning: **do not abort a pending key younger than 1 minute**, and before aborting, **read shard P for that paste id**. If the row exists, finish step 5. If the row does not exist and the key is older than a minute, abort and reap with the age floor. If you cannot reach P, you **leave it pending**. Aborting because P was down is the same forbidden compensation: you may be deleting the evidence of a commit you failed to see, or freeing the key so a retry creates a second paste while the first commit is about to land.
 
 That last sentence is the whole lesson. Compensation that runs when it cannot see the other shard will undo a success. The safe action when you are blind is to wait, not to undo.
+
+### How big the window is
+
+Peak creates are about **350/s**. A healthy saga finishes inside the **2 second** budget, so pending keys in flight are about 350 × 2 = **700**. That is not a new database. The sweeper's set is pending **older than 1 minute**, which is thirty times the budget, not a rounding of it. If creates are stuck, that set grows at 350 a second: one minute is **21,000** rows. You page on the age of the oldest pending key. You do not "clear the alert" by aborting the set. Aborting 21,000 keys you have not checked against shard P is 21,000 chances to free a key whose paste commit is in flight, and then 21,000 retries that mint a second paste.
+
+Two sweepers can both read P, both see the row, and both try to mark `done`. The update is `WHERE state = 'pending'`. One changes the row. The other changes zero rows and stops. That race is safe, and it is the same shape as the state guard on a delete. The unsafe race is still the one that aborts, or deletes the paste, while the read of P failed or was skipped. Waiting is the mitigation. A faster sweeper is not.
 
 A retry from the client during pending: look up the key, find pending, run recovery, do not insert a second pending. The unique key on K is what makes the second insert fail. You already know that shape from day 37. The saga did not remove the unique constraint. It moved it.
 

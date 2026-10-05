@@ -42,7 +42,7 @@ Write:
 
 ---
 
-**Stop. Linearizability is a per-operation refusal, below.**
+**Stop. The real-time test is below. Your yes-list and your no-list stay on the attempt.**
 
 ---
 

@@ -42,7 +42,7 @@ Write:
 
 ---
 
-**Stop. One transaction, a poller, a visible lag, below.**
+**Stop. How the row and the message stay coupled, and the lag a stranger can see, is below.**
 
 ---
 
