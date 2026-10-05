@@ -21,7 +21,7 @@
 
 ## Intent
 
-Facing a one-line prompt, leave able to lock behavior, constraints, and non-goals before any box is drawn. A requirement names observable behavior or a bound. A design names a component. If your page has a component on it, you left this day early.
+Facing a one-line problem, leave able to lock behavior, constraints, and non-goals before any box is drawn. A requirement names observable behavior or a bound. A design names a component. If your page has a component on it, you left this day early.
 
 ## Problem
 
@@ -172,14 +172,14 @@ The trust boundary is the service. Clients are untrusted: bodies are hostile, cl
 
 ```mermaid
 flowchart TD
-  prompt[Design a pastebin] --> ask[Questions that change the data model]
+  problem[Design a pastebin] --> ask[Questions that change the data model]
   ask --> lock[Behavior, bounds, assumptions]
   lock --> non[Non-goals said out loud]
   non --> stop[Stop. Do not draw yet.]
   stop --> later[Day 3 may use the numbers. Day 5 may draw.]
 ```
 
-If your arrow from the prompt points at "pick a database," redo the diagram.
+If your arrow from the problem points at "pick a database," redo the diagram.
 
 The picture ends at "Stop" on purpose. Every arrow before it is a decision you can be asked to defend. The arrow after it is where most candidates lose the requirements they just set, by drawing storage. If someone asks "so what would you store?" from this picture, the answer is the shape, not a vendor: one row keyed by an id, opaque bytes, a deadline.
 
@@ -191,7 +191,7 @@ The picture ends at "Stop" on purpose. Every arrow before it is a decision you c
 
 **What you give up.** Lost URL means the creator's only remaining power is the delete token, which they also have to keep. There is no "email me my pastes." Support cannot verify ownership, because there is no owner. A token in a proxy log is a bearer secret; you will store only a hash (day 4), but the plaintext still exists on the client. Say who pays: the creator who lost the link. "No accounts" with no named victim sounds lazy; "a lost link is gone, and I accept that for a share-a-link product" is a decision.
 
-**Why you still choose it.** The prompt is "share a link," not "build a user system." Accounts put a login dependency in front of create, and they invite a private/public matrix you then have to get right on every read. The capability URL makes the read path one key.
+**Why you still choose it.** The problem is "share a link," not "build a user system." Accounts put a login dependency in front of create, and they invite a private/public matrix you then have to get right on every read. The capability URL makes the read path one key.
 
 **10× break.** Ten times the users does not flip this choice. Accounts at 10× are still a policy problem, not a scale win. What 10× will break is egress, metadata QPS, or backup, which you have not earned the right to name precisely until day 3. Do not "upgrade" to accounts because the system got bigger.
 

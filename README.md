@@ -8,7 +8,7 @@ If that link is not live yet, GitHub Pages still needs to be turned on for this 
 
 ## The promise
 
-You learn to run a 35–45 minute design loop out loud. Requirements come before boxes. Every number has an assumption you can recompute. The diagram is one you can redraw from memory. The trade-off names what you gave up, and what breaks at 10×. When a dependency dies, you say what the user sees.
+You learn to run a 35–45 minute design interview out loud. Requirements come before boxes. Every number has an assumption you can recompute. The diagram is one you can redraw from memory. The trade-off names what you gave up, and what breaks at 10×. When a dependency dies, you say what the user sees.
 
 Phase 1 installs that hour on one system: a pastebin. You do not leave the week with a catalog of caches, queues, and consensus. You leave able to take a one-line problem and finish a design a senior interviewer can push on.
 
@@ -16,7 +16,7 @@ There is no certificate and no cohort. The design log is the artifact. It stays 
 
 ## Who it is for
 
-Engineers with 10 or more years of experience, preparing for senior and staff loops at Google, Meta, Amazon, Apple, Netflix, Microsoft, and peers. The altitude is someone who has already shipped, and now has to make the reasoning visible on a whiteboard.
+Engineers with 10 or more years of experience, preparing for senior and staff interviews at Google, Meta, Amazon, Apple, Netflix, Microsoft, and peers. The altitude is someone who has already shipped, and now has to make the reasoning visible on a whiteboard.
 
 Not a new-grad course. Not an AI or ML course. The 90 days are distributed systems, scale, and reliability only.
 

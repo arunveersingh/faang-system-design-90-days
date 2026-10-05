@@ -30,8 +30,8 @@ Install the hour: requirements and numbers before boxes, then a diagram you can 
 
 | Day | Title | Type | Intent |
 |---|---|---|---|
-| 1 | [What the interviewer is grading](days/01-what-the-interview-is-grading.md) | Lesson | Facing a senior or staff loop, leave able to separate graded signal (scope, trade-offs, operability) from a technology tour. |
-| 2 | [Vague problem to requirements](days/02-vague-prompt-to-requirements.md) | Lesson | Facing a one-line problem, leave able to lock behavior, constraints, and non-goals before any box is drawn. |
+| 1 | [What the interviewer is grading](days/01-what-the-interview-is-grading.md) | Lesson | Facing a senior or staff interview, leave able to separate graded signal (scope, trade-offs, operability) from a technology tour. |
+| 2 | [Vague problem to requirements](days/02-vague-problem-to-requirements.md) | Lesson | Facing a one-line problem, leave able to lock behavior, constraints, and non-goals before any box is drawn. |
 | 3 | [Capacity math out loud](days/03-capacity-math-out-loud.md) | Lesson | Facing a blank estimate, leave able to compute QPS, storage, and bandwidth out loud with every assumption visible. |
 | 4 | [API and data model first](days/04-api-and-data-model-first.md) | Lesson | Facing pressure to draw servers, leave able to put endpoints, retention, and the real lookup key down first. |
 | 5 | [One box, and why it breaks](days/05-one-box-and-why-it-breaks.md) | Lesson | Facing pressure to distribute immediately, leave able to show a correct single box and the first limit that forces a split. |

@@ -21,7 +21,7 @@ Facing a closed-book timer, leave able to run the pastebin in about 35 minutes w
 ## How to run
 
 - Blank paper or a blank file. No notes, no day 2–6 pages, no search, no chat.
-- The only prompt you may have open is [prompts/pastebin.md](../prompts/pastebin.md). It says the same thing as the problem section below. It does not help you.
+- The only problem card you may have open is [prompts/pastebin.md](../prompts/pastebin.md). It says the same thing as the problem section below. It does not help you.
 - Do not scroll past the attempt barrier on this page. The rubric is above the barrier so you can score without spoiling yourself. The design is below it.
 - Timer visible. When it hits 0, you stop, even mid-arrow.
 - Then score, then write the log from your page, then scroll.
@@ -45,11 +45,11 @@ If you are still listing features at minute 8, skip to numbers. A missing non-go
 
 > Design a pastebin. People paste text and share a link.
 
-That is the entire prompt. Same product as the week. Closed book anyway, because the week was the method, and this hour is whether you can run it.
+That is the entire problem. Same product as the week. Closed book anyway, because the week was the method, and this hour is whether you can run it.
 
 ## Rubric
 
-Score 1–4 on each dimension. A senior-shaped loop is mostly 3s. A staff-shaped loop is not "more boxes." It is a 4 on the deep dive and a 4 on failure, with the rest at least a 3.
+Score 1–4 on each dimension. A senior-shaped interview is mostly 3s. A staff-shaped interview is not "more boxes." It is a 4 on the deep dive and a 4 on failure, with the rest at least a 3.
 
 Write the score from your page only. "I think the reference will say…" is not a score you are allowed to make yet, because you have not earned the scroll.
 
