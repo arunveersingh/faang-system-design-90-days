@@ -75,13 +75,30 @@ You already have the design. Today's skill is making each picture answer exactly
 | Scale overlay | Which limit, and which single addition removes it? | A second product |
 | Failure overlay | One dependency down: what does the user see, what is already safe? | A full disaster-recovery design |
 
-The course counts **six types**. Read path and write path are one type and two drawings, because one combined sequence is how the ack gets lost. Scale is drawn twice below, because durability and 10× are different limits. Failure is the last picture. That is eight figures for six types, on purpose. Do not merge the overlays back onto the whiteboard. An overlay you bake into the base picture becomes a fleet you have to defend at today's QPS.
+The course counts **six types**. Read path and write path are one type and two drawings, because one combined sequence is how the ack gets lost. Scale is drawn twice below, because durability and 10× are different limits. Failure comes last, drawn twice, one dependency per sketch. That is nine figures for six types, on purpose. Do not merge the overlays back onto the whiteboard. An overlay you bake into the base picture becomes a fleet you have to defend at today's QPS.
 
 ### How you talk while you draw
 
 Draw the whiteboard first, after requirements and numbers, not before. When they interrupt, park the question in the overlay it belongs to: "I'll finish the write path, then I'll kill the disk on a separate sketch." That sentence is the skill.
 
 Corner of the whiteboard, small: the four numbers above. A picture without the numbers cannot survive "will it fit?"
+
+What staff sounds like at the marker: you talk about the arrow, not the box. "The body crosses here, then the fsync, then the row commit, then the 201" is a design. "Here's Postgres" is a label. You also erase under questioning. "You're right, nothing requires that box," followed by actually wiping it, scores higher than defending a box you drew out of habit. An interviewer probing a picture is checking whether each mark has a reason. A mark you can remove without losing an answer should not have been drawn.
+
+### Probe map
+
+Most probes are predictable. Know which picture you point at, and the first sentence you say.
+
+| They ask | Point at | First sentence |
+|---|---|---|
+| "Where's the ack?" | Write path | "After the fsync and the row commit. Nothing before that is a link." |
+| "Can I read a paste you just deleted?" | Read path | "No. The row removal commits first, and there's no cache to serve a stale copy." |
+| "What if the database is down?" | New failure sketch | "Reads and creates get 503, never 404. Committed pastes are safe on disk." |
+| "Will it fit?" | Numbers in the corner | "17k reads a second and 1.4 Gbit/s at peak, one host. The serial fsync is the limit, and group commit fixes it." |
+| "Why no cache?" | Scale overlay | "No number asks for one. At 10×, 174k point reads a second does, and that's where I'd draw it." |
+| "How long is the id?" | Data model | "Twelve base62 characters, never reused. Well under one expected collision in a decade." |
+
+If you cannot find the picture for a probe, the probe has found a gap in your drawing, not in your memory.
 
 ## Diagrams
 
@@ -197,7 +214,7 @@ erDiagram
   PASTE ||--|| FILE : "path derived from id"
 ```
 
-On paper, a box with the primary key underlined is enough. Write "no user table" in the margin so you do not invent one under stress.
+On paper, a box with the primary key underlined is enough. Write "no user table" in the margin so you do not invent one under stress. The relationship line is the important part: the file's path is derived from the id, so there is no path column that can drift. When they ask "what if the row and the file disagree," that line is where the answer starts: live row with no file is a 500 and a page; a file with no row is an orphan nobody can address.
 
 ### 6. Scale overlay
 
@@ -215,6 +232,8 @@ flowchart LR
   bodies -.->|limit: 450M files will not restore| obj[(Object storage or packed volumes)]
 ```
 
+Caption it with the user-visible reason, not the technology: "Today a dead disk is total loss and about a day to restore. After this, a dead disk is a host to replace." The service and the API do not change. Only where the bytes live changes, and the write order becomes PUT, then commit, then 201.
+
 10× traffic split, when the question is the multiple:
 
 ```mermaid
@@ -223,6 +242,8 @@ flowchart LR
   nic -.->|limit: peak about 14 Gbit/s| more[More than one serving path]
   meta[One metadata primary] -.->|limit: about 174k point reads/s| reads[Cache or read replica]
 ```
+
+Caption: "At 10×, users would see every GET slow down at once, not one hot paste." Both arrows end in a capability, not a product name, on purpose. If they ask which cache, the answer starts with what it must never do: serve a paste the row would 404.
 
 The arrow label is the limit being removed. An overlay arrow without a limit is how caches sneak in. There is still no queue on either overlay. Create is still synchronous.
 
@@ -242,6 +263,17 @@ Say: "This host is one failure domain. I have not drawn a replica, so I don't ge
 
 If they want a second failure, take a new sketch. The good second one is **the process restarts, disk intact**: reads of committed pastes come back when the process does; in-flight creates fail; no drain. Do not put both failures on one arrow.
 
+```mermaid
+flowchart LR
+  client[Client] --> svc[Paste service restarting]
+  svc --> pg[(Postgres)]
+  svc --> disk[(NVMe intact)]
+  svc -.->|in-flight creates| err[Error, retry may mint a second paste]
+  disk -.->|acked pastes| safe[Readable when the process returns]
+```
+
+Every failure overlay caption has three parts: what the creator sees, what the reader sees, and what is already durable. Here: the creator sees an error and may retry into a duplicate; readers see connection errors for the restart window; everything that got a 201 is safe. If your caption is missing one of the three, the overlay is not finished.
+
 ## Trade-offs
 
 **Choice.** Six sparse pictures, overlays kept off the base whiteboard.
@@ -254,6 +286,8 @@ If they want a second failure, take a new sketch. The good second one is **the p
 
 
 **What you get.** Any question maps to one picture. You can redraw under pressure. You do not defend a CDN you only drew because there was space on the page.
+
+**Why you still choose it when they say "just show me the whole thing."** The comprehensive diagram cannot show order. The ack, the 404 branch, and the delete order are all sequences, and they disappear in a topology. The single picture answers "what exists" and fails every "what happens when" question, which is what the interview is actually made of.
 
 
 **10× break.** The scale overlay is the break, and it stays an overlay: ~14 Gbit/s against one NIC, ~174k reads/s against one metadata primary, ~45 TB and billions of objects against the restore story you already told at 1×. If the 10× sketch replaces your whiteboard, you will be unable to answer a question about today's ack path, because the ack path is now smeared across tiers you added for a hypothetical. Keep both pictures.
@@ -275,6 +309,18 @@ A second trade-off inside the failure overlay: **show total loss on one disk, ra
 **Hand-waving.** A failure drawing that ends at "we'd fail over." To what, with what RPO, and what does the client see during the minutes you have not drawn?
 
 **Practice.** Turn the page over and redraw the whiteboard and the write sequence in four minutes. If the fsync and the commit swap order, you do not know the design yet. Do it again. Then add the 404 branch from memory.
+
+**Say.** "Let me put that on a separate sketch so the base picture stays true to what I'm building today." Then actually draw a new box on the page. Doing that move is the skill.
+
+**Hand-waving.** A box labeled "storage." Storage of what, looked up by what, durable when? The body and the row are different stores with different failure stories. One box hides the 500 branch.
+
+**If they say "put it all on one diagram."** Do it, but mark anything not built (hatched or dashed), and label each of those with the limit that would bring it in. Then go back to the base picture for the next question.
+
+**If they point at a box and ask "why is that there?"** Say the number or the fault in one clause. If you cannot, erase it while they watch. That is a stronger moment than any box.
+
+## Say this in the room
+
+I'll draw the context first: an anonymous creator, anyone holding the link, and the service as the trust boundary; the shared link travels outside my system. Then the whiteboard: client, paste service, Postgres looked up by id, NVMe at a path derived from id, with the numbers in the corner, about 17k reads and 1.4 Gbit/s at peak. The read path has two branches that matter: no row or expired is a 404, and a live row with no file is a 500 that pages. The write path ends at the 201, after the fsync and the row commit, and nothing before that is a link. The data model is one table with the id underlined and no user table. Overlays go on separate sketches: durability is the body store, because a dead disk is total loss; 10× is a second serving path and a plan for 174k metadata reads. For failure I take one dependency at a time and say what the creator sees, what the reader sees, and what is already safe.
 
 ## Kit artifact
 

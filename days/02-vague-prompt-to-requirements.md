@@ -62,6 +62,8 @@ Ask these. If the interviewer says "up to you," lock the answer in the same brea
 | Can they edit or replace? | No. | Edit is version history and cache invalidation. A new paste is a new id. |
 | Custom or vanity URLs? | No. The service mints the id. | Vanity slugs are squatting, hot keys, and a second lookup table. |
 
+What staff sounds like here: you ask fewer questions than you have, and you answer most of them yourself. "I'll assume text only, anonymous, links that expire from a fixed list. Stop me if any of that is wrong." That is three locks and one cheap veto in eight seconds. Six questions read out in a row hand the steering wheel to the interviewer and burn minute four waiting for answers they expected you to propose. Ask out loud only the questions whose answer would change the **key, the retention, or who can read**. Lock the rest in the same breath.
+
 Two more you should raise even if they do not, because they are how pastebins embarrass people:
 
 - The body is untrusted. You will not serve it as HTML. A paste that contains a script is text, not a page on your origin.
@@ -76,6 +78,16 @@ Two more you should raise even if they do not, because they are how pastebins em
 5. **Expiry allow-list.** 1 day, 7 days, 30 days, 365 days. Default 30 days. The client sends a duration, not an absolute timestamp. The server clock computes `expires_at`. You do not accept an arbitrary duration, because your storage assumption depends on this list.
 
 Create is acknowledged only after the body and the metadata are durable. That is a requirement. The mechanism is day 5. Do not "solve" it with a product name today.
+
+### Failure the user sees, as a requirement
+
+Most candidates wait until the design to say what failure looks like. By then the status codes are already improvised. Lock three sentences here, because each one decides what a 404 means and what the pager will watch.
+
+- **Create fails before the ack.** The creator gets an error, not a link. They may retry, and a retry is a new paste. There is no "my pastes" page to recover a lost link from. That is the price of the no-accounts lock, said as a user-visible cost, not discovered later.
+- **Storage is sick while a paste is live.** The reader gets a 5xx, never a 404. A 404 is a promise that the paste is gone on purpose. A system that "degrades gracefully" by returning 404 has turned data loss into something that looks like a normal miss, and nobody gets paged.
+- **The sweeper is behind.** The reader still gets the 404 at `expires_at`. Late garbage collection costs disk. It never costs correctness.
+
+Those three are requirements, not mechanisms. Day 5 decides how to keep them. Today you decide that they are the contract, so that no later box is allowed to break them quietly.
 
 ### Constraints you state as assumptions
 
@@ -93,6 +105,8 @@ These are the locks day 3 will turn into arithmetic. State them as assumptions, 
 | Id | Service-minted, unguessable, never reused | Width is a data-model question for day 4, because expired ids must not be recycled into a new paste. |
 
 Units: 1 KB means 1,000 bytes in this course, and 1 GB means 10^9 bytes. Say that once so nobody "corrects" you with 1024 and thinks the design changed.
+
+Know which locks you concede and which you defend. **Numbers are knobs:** if they say 100 million pastes a day, say "fine, I'll redo the math with that" and move on. Do not argue for your own guess. **Shape locks are not knobs:** the TTL allow-list, never reusing ids, and the same 404 for expired and missing each change the data model. If they push on one of those, ask what product they want, because they are describing a different one. Conceding a number shows you can listen. Conceding a shape lock without saying what it costs is how a design quietly falls apart by minute twenty.
 
 Latency, said as a budget rather than a dream: a read of a hot paste should be a primary-key lookup plus a short byte read, tens of milliseconds of server time in-region, not a global 100 ms promise. A create is bounded by durability, not by the network. You will put a number on that when you know the fsync story. "Low latency" is not a requirement.
 
@@ -115,6 +129,8 @@ Say these before you draw. Each one is a different interview you just declined.
 - A cache, a queue, a CDN, or a second service. Those are designs. They are not requirements. They have to earn a place from a number on day 3 or a fault on day 5.
 
 Privacy in one line: the URL is the capability. You do not add a public ACL model. Anyone who has the URL can read until expiry or deletion. Say that so "private paste" does not sneak in as a second visibility flag you then have to enforce everywhere.
+
+A non-goal is not "never." It is "not in this hour, and here is what it would cost." Say the cost in one clause for the likely pushes: accounts put a login dependency in front of create; search needs a second index over untrusted text; multi-region needs an authoritative copy on delete. Under pressure, concede abuse limiting first: it sits in front of create and does not change the row. The one never to give up quietly is "private paste," because it needs an identity, which you refused.
 
 ## Design
 
@@ -165,13 +181,15 @@ flowchart TD
 
 If your arrow from the prompt points at "pick a database," redo the diagram.
 
+The picture ends at "Stop" on purpose. Every arrow before it is a decision you can be asked to defend. The arrow after it is where most candidates lose the requirements they just set, by drawing storage. If someone asks "so what would you store?" from this picture, the answer is the shape, not a vendor: one row keyed by an id, opaque bytes, a deadline.
+
 ## Trade-offs
 
 **Choice.** A capability URL, anonymous create, no accounts.
 
 **Alternative.** Authenticated owners. Every paste has a user id. Read is open or private based on a flag. Delete uses the session.
 
-**What you give up.** Lost URL means the creator's only remaining power is the delete token, which they also have to keep. There is no "email me my pastes." Support cannot verify ownership, because there is no owner. A token in a proxy log is a bearer secret; you will store only a hash (day 4), but the plaintext still exists on the client.
+**What you give up.** Lost URL means the creator's only remaining power is the delete token, which they also have to keep. There is no "email me my pastes." Support cannot verify ownership, because there is no owner. A token in a proxy log is a bearer secret; you will store only a hash (day 4), but the plaintext still exists on the client. Say who pays: the creator who lost the link. "No accounts" with no named victim sounds lazy; "a lost link is gone, and I accept that for a share-a-link product" is a decision.
 
 **Why you still choose it.** The prompt is "share a link," not "build a user system." Accounts put a login dependency in front of create, and they invite a private/public matrix you then have to get right on every read. The capability URL makes the read path one key.
 
@@ -193,7 +211,19 @@ Second choice, shorter, because interviewers push it: **no public listing.** The
 
 **Hand-waving.** "Expire with a cron job." A delayed job is not the read contract. The read checks `expires_at`. The job only reclaims space.
 
+**Say.** "If storage is unhealthy while a paste is live, the reader gets a 5xx, not a 404. A 404 means gone on purpose. I want that line in the contract before I draw anything, so no later component is allowed to hide data loss as a miss."
+
+**Hand-waving.** "We'll handle errors gracefully." Graceful for whom? Name what the creator sees, what the reader sees, and which response code must never be used to cover a fault.
+
 **If they say "make it like Pastebin.com."** Take the behavior (text, link, expiry), not the ads, accounts, or syntax-highlighting farm. Say which parts you are copying and which you are leaving.
+
+**If they say "just assume whatever, let's move on."** Give them four assumptions in one breath, with units, and write them in the corner: "Ten million a day, 50 reads per write, 10 KB, 45 days resident." Moving on without them means the 10× question later has nothing to stand on.
+
+**If they override a lock at minute 15.** Say which earlier sentence just changed and what it touches: "Private pastes means accounts, so create now has a login dependency and the read checks an owner. My key is unchanged; my read path grew a branch." Then keep going. Do not quietly redraw everything.
+
+## Say this in the room
+
+A pastebin, for this hour, is a capability URL with a deadline. Anonymous create, UTF-8 text only, no directory, no edit, no vanity ids. TTL comes from a fixed list, 1, 7, 30, or 365 days, default 30, set by the server clock. Expired and missing get the same 404, and a reader never gets a 404 when the system is the problem; that is a 5xx. Create returns a link only once the paste is durable, and a retry makes a second paste. My load assumptions are ten million pastes a day, 50 reads per write, 10 KB mean, 3× peak, about 45 days resident; those are knobs, change any of them and I will redo the math. The allow-list, never reusing ids, and the same 404 are not knobs, because they shape the data model. I am not designing accounts, search, rendering, multi-region, or abuse controls unless you want one of them as the deep dive.
 
 ## Kit artifact
 

@@ -89,6 +89,8 @@ Durability tax, because QPS without fsyncs is a lie. I assume one fsync costs 5 
 
 The assumption I instrument first is the mean body size. If the mean is 100 KB, storage and egress go up tenfold and a single 10 Gbit NIC is already the wrong story **today**, not at 10× traffic. The second assumption is the read ratio. If it is 5:1, I overstated the read path by 10×. The third is the 45-day mix."
 
+What staff sounds like in this script is not more decimal places. It is three habits. Every number is attached to the limit it threatens before anyone asks ("1.4 Gbit/s, against a 10 Gbit NIC, fits"). The assumption you fear is named by what it would change in the design, not just in the size ("if the mean is 100 KB, the NIC is the story today"). And the whole thing takes five minutes, announced up front: "Four numbers and one ceiling, then I'll stop." A senior estimate is correct. A staff estimate is correct and already pointing at the box it will force.
+
 ### Check table
 
 | Quantity | Expression | Result |
@@ -116,6 +118,16 @@ They do not say "add Redis." A hot paste is one key. One viral id that absorbs a
 They do not say "add a CDN." Peak egress at 1.4 Gbit/s fits a 10 Gbit NIC with room. A CDN is a non-goal until a number says the origin should not be the one serving bytes. That number is the 10× line below, or a mean body size you got wrong.
 
 They do not say you are available. Capacity is not durability. A box that can push 174 MB/s still loses every paste when its disk dies. That split is day 5.
+
+### Failure the user sees, in these numbers
+
+A capacity limit is not a crash. It shows up as something a user feels, and you should be able to say what that is for each limit on the page.
+
+- **Peak writes against a serial fsync.** At 350 arrivals a second against 200 completions, the backlog grows by 150 a second. Ten seconds into peak, 1,500 creates are waiting, which is about 7.5 seconds of added latency (1,500 / 200). Clients time out, retry, and because create is not idempotent, each retry is a new paste and more load. The failure is a latency cliff with a retry amplifier, not an error page. That is why the ceiling matters at 1×.
+- **Retention drifting toward the worst case.** Reads keep working. Creates start failing when the disk fills. Say how much warning you get: if you provisioned twice the 4.5 TB mix and every new paste suddenly picked 365 days, deletes fade out and net growth approaches 100 GB a day, so 4.5 TB of headroom lasts roughly six weeks. Page on days-to-full, not percent-full. Percent-full pages you when it is already too late.
+- **Egress at the NIC (the 10× case).** Not one hot paste getting slow. Every GET's tail latency climbs together, and creates share the same link, so create latency climbs too. A user sees "the site is slow," not "this paste is slow."
+
+Ask yourself which of these three you would page on first. For this product, fsync latency against the commit window, and days-to-full. Not QPS. A QPS dashboard is not a page.
 
 ### 10× traffic, same assumptions otherwise
 
@@ -180,6 +192,8 @@ flowchart TB
 
 The left edges are today's locks or the 10× column. The right edges are limits. A limit with nothing pointing at it is a tier you have not justified. Leave it off the whiteboard.
 
+Read it from right to left in the room. Start at a limit and ask what points at it. The fsync box is the only limit today's numbers already exceed, which is why the write path, not the read path, gets the first design sentence on day 5. The NIC and the metadata primary only fail in the 10× column. If your instinct was to defend reads first, this picture is the correction.
+
 ## Trade-offs
 
 **Choice.** Quote average and peak. Design durability for the **peak write** rate and the **resident byte** total. Design egress for the **peak read** byte rate. Do not design for the average and mention peak as a footnote.
@@ -190,9 +204,11 @@ The left edges are today's locks or the 10× column. The right edges are limits.
 
 **What you refuse to give up.** Checkability. Anyone in the room can divide 10 million by 86,400 and catch you.
 
+**Why you still choose it.** The interviewer's next question is almost always a 10× or a "what if the mean is bigger." With the terms visible, you change one input and say the new result in ten seconds. With one blended number, you start over, or worse, you scale everything by ten and add three tiers that were never under pressure.
+
 **10× break.** Named above: one NIC at ~14 Gbit/s, and a metadata primary you should not promise at ~174k point reads/s. Group commit is what keeps the write path honest before you ever get to 10×, because 350 already misses a 200/s serial fsync ceiling. The break is specific. "We'd shard" is not a break; it is a tactic you have not aimed.
 
-Sensitivity is the other trade-off worth saying. You can hold traffic fixed and be wrong about the mean size by 10×. That hurts as much as 10× traffic, and it is more likely. Say which knob you fear.
+Sensitivity is the other trade-off worth saying. You can hold traffic fixed and be wrong about the mean size by 10×. That hurts as much as 10× traffic, and it is more likely. Say which knob you fear. The difference is that traffic growth is gradual and you can see it coming. A wrong mean size is wrong from launch day, so the NIC break arrives with no growth curve to warn you.
 
 ## Talking points
 
@@ -209,6 +225,18 @@ Sensitivity is the other trade-off worth saying. You can hold traffic fixed and 
 **If they challenge 50:1.** Good. Recompute reads and egress only. Do not rebuild the whole product. 10:1 is 1,160 read QPS average and about 280 Mbit/s peak. Still the same shape.
 
 **If they challenge 5 ms fsync.** Even better. Ask what disk they want you to assume. The structure of the answer (ceiling = 1 / fsync time, compare to peak writes) does not change. A 1 ms fsync raises the serial ceiling to 1,000/s, and peak fits without group commit. Say that. Do not pretend every disk is the same.
+
+**Say.** "The limit today's numbers already break is the serial fsync, not reads. Without batching, peak builds a backlog of 150 creates a second, so about seven seconds of extra latency after ten seconds of peak, and then retries that each mint a new paste. The user sees slow creates and duplicate links, not an error."
+
+**Hand-waving.** "We'll autoscale." Autoscale which tier, against which limit? Adding stateless servers does not raise a disk's fsync ceiling, and it does not add NIC capacity to a box you did not add.
+
+**If they say "skip the math, we know the scale."** Say the one sentence that still matters: "Then I'm assuming roughly 350 writes and 17k reads a second at peak, about 1.4 Gbit/s out. Tell me if it's an order of magnitude off." Write it in the corner. Without it, every later "will it fit?" is a guess.
+
+**If they hand you a much bigger number.** A billion pastes a day is 100× the lock, not "more of the same." Redo it out loud: about 11,600 writes a second average and 35k at peak, 1.74 million peak reads, about 139 Gbit/s of peak egress, 10 TB a day in, 450 TB resident. Every limit on the "threatens" picture is now broken at once. Say that the shape of the design changes, and re-rank the limits before you draw anything.
+
+## Say this in the room
+
+Ten million pastes a day is 116 writes a second, 5,800 reads at 50 to 1, three times that at peak: about 350 and 17,400. 100 GB a day in, 4.5 TB resident at a 45-day mix, 36.5 if everyone picks a year. Peak egress is about 1.4 Gbit/s, which one NIC handles. The limit today's numbers already break is the serial fsync: 5 ms buys 200 writes a second and peak is 350, so without batching creates queue, slow down, and get retried into duplicates. I'll batch the fsync and still ack only after it returns. At 10× the NIC and a single metadata primary break, not the disk's byte rate. The assumption I'd instrument first is the mean body size, because if it is wrong, the NIC breaks on launch day, not at 10×. No safety factor on top of the 3×; if you want one, name it and I'll multiply once.
 
 ## Kit artifact
 
