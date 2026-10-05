@@ -84,6 +84,8 @@ Day 3's ceiling: a 5 ms fsync, one in flight, is 200 writes a second. Peak is ~3
 
 Postgres will group-commit its own WAL if you let more than one insert be in flight. Metadata at 350 rows/s is not the disk story. The body flush is.
 
+Say how small the batching is, so nobody hears "batching system." During one 5 ms fsync at 350 arrivals a second, about 1.75 creates arrive (350 × 0.005). So at 1×, group commit is two writes sharing a flush. The ceiling becomes roughly 200 flushes a second times the batch size, and the batch grows with load on its own. At 10×, 3,500 a second, a flush carries about 17. Same mechanism, fatter batch, and the same rule: no 201 until the flush returns.
+
 Do not acknowledge first and flush in the background. That turns 201 into a promise you cannot keep, and it invents a queue you spent this week refusing.
 
 ### Body layout on the one disk
@@ -145,6 +147,8 @@ You do not have to build either one in the first drawing. You have to say which 
 
 A cache is still not on the list. Nothing in the read number requires it. Adding Redis because "pastebins have caches" is the tour day 1 exists to stop.
 
+What staff sounds like here is the order: prove the one box can serve the numbers, name the first real limit, and refuse every other tier. The room wants to see that you can leave a cache off a whiteboard without flinching. The durability sentence ("I would not ship a single disk") comes after the proof, not instead of it. Saying "we'd use S3" as the opening move skips both: you never showed that QPS fits, and you never said why the local directory fails. A staff answer is smaller than a nervous senior's, and it owns the one break it would take.
+
 ## Diagrams
 
 ### The whiteboard
@@ -156,7 +160,7 @@ flowchart LR
   svc --> disk["NVMe /data/abc/id"]
 ```
 
-Three boxes, if you count the client. If you cannot redraw this in a minute, you do not know the design yet, whatever else you add later.
+Three boxes, if you count the client. If you cannot redraw this in a minute, you do not know the design yet, whatever else you add later. The labels that matter are the ones that are not boxes: HTTPS at the edge of the service, the lookup key on the Postgres arrow, and the path-from-id on the NVMe arrow. An unlabeled arrow is a place a cache or a queue can sneak in while you are looking at something else.
 
 ### Create, including the durability point
 
@@ -186,7 +190,17 @@ flowchart LR
   pg -.->|same host, same fate| gone
 ```
 
-User-visible result: the site is down, and if this disk was the only copy, the pastes are gone, not "eventually consistent." That sentence is the failure overlay. A replica you have not drawn is not a mitigation you have.
+User-visible result: the site is down, and if this disk was the only copy, the pastes are gone, not "eventually consistent." That sentence is the failure overlay. A replica you have not drawn is not a mitigation you have. Caption it that way when you redraw: "sole copy, RPO is everything." The dotted arrow is not a recovery plan. It is the cost of the picture you chose.
+
+## Failure the user sees, on this box
+
+The diagram shows the disk dying. Finish the sentence for it and for the failure that hides under "restart."
+
+**Disk dies.** Creates fail. Reads fail. If this disk was the only copy, every paste is gone. RPO is everything. Then put a number on RTO even if you add a nightly copy, because that is the number a staff interviewer asks for. 4.5 TB streamed as large files at 500 MB/s takes about 2.5 hours. The same bytes as 450 million small files, at a planning figure of 5,000 files a second per restore stream, take 90,000 seconds: about **25 hours**. And a nightly copy means an RPO of up to a day of pastes that already got a 201, which breaks the durability sentence you put in the contract. That arithmetic, not taste, is why the first split is the body store.
+
+**Process restarts, disk intact.** In-flight group commits that have not acked fail. Every paste that got a 201 survives: the fsync and the commit finished. A client that timed out may retry and mint a second paste; that is the API contract, not a bug to cover with a queue. There is no drain. Page on restart count if it flaps, and on the create error spike, not on 404.
+
+**Disk filling** is the paragraph above, in one user-visible line: creates fail while reads keep working, and you page on days-to-full, because percent-full pages you too late.
 
 ## Trade-offs
 
@@ -215,6 +229,8 @@ User-visible result: the site is down, and if this disk was the only copy, the p
 
 So: at 1× you split for durability and restore, when you decide to ship. At 10× you also split the **read path** (more than one NIC, and a plan for metadata reads) even if durability were solved. A cache of hot metadata and hot bodies is now justified by a number, and not before. You still do not need a queue. Creates are still a request the user waits on.
 
+Name the refusal inside each alternative. Against A (inline blobs): you refuse the transactional comfort because you refuse the backup cost. Against B (object storage first): you refuse the cleaner ack because you refuse to skip the one-box proof. Against a cache: you refuse a miss path and a stale-after-delete hazard you have not been asked to design. Against a queue: you refuse work that is still on the user's critical path. A staff refusal names the unit it is waiting for.
+
 ## Talking points
 
 **Say.** "One service, Postgres, one NVMe, files under a three-character prefix. About two thousand files per directory at today's live set. I group-commit body fsyncs because a serial 5 ms fsync only buys 200 writes a second and peak is 350. I ack after fsync and row commit. I do not ack early."
@@ -234,6 +250,16 @@ So: at 1× you split for durability and restore, when you decide to ship. At 10�
 **If they ask what you page on.** Free space under the headroom you named. Fsync latency climbing so group commit stops meeting the peak. `body_missing` above zero. Error rate on create. Not 404 rate: 404 is a normal read of a bad or expired link.
 
 **If they ask what the user sees when the host reboots.** In-flight creates fail. Completed pastes are readable when the process is back, if the disk is back. You have no second site. Do not invent failover you did not draw.
+
+**Hand-waving.** "We'll just put another disk next to it." Two disks on one host share the power supply, the controller, and the person who misconfigures a RAID. That is not the durability split. The durability split moves the bytes to a store whose failure domain is not this host.
+
+**If they ask how long a create takes.** "Around one fsync, a few milliseconds on a drive with power-loss protection, because the batch waits for the flush. If fsync latency climbs so the batch cannot clear 350 a second, creates get slow, then time out, then get retried into duplicates. That is the page, before inventing a queue."
+
+**If they insist on Redis "just in case."** "Then I have to design the miss, the invalidation on delete and expiry, and a rule that a cache never serves a paste the row would 404. That is a larger design than the one that meets the numbers. Show me the number that requires it, or leave it off."
+
+## Say this in the room
+
+One service, Postgres, and one NVMe, files under a three-character prefix, about two thousand files per directory at today's live set. I group-commit body fsyncs because a serial 5 ms flush only buys 200 writes a second and peak is 350. I ack after the fsync and the row commit, never before. Peak read is about 17k QPS and 1.4 Gbit/s; that fits one host, and I would load-test the point read before I bet a launch on it. I would still not ship a single disk: the first extra machine is a durability story for the bodies, object storage or packed volumes, because restoring 450 million small files is about a day, not a couple of hours. A cache does not fix a dead disk. Disk dies: site down, pastes gone if this was the only copy. Process restarts: in-flight creates fail, committed ones survive. Disk filling: creates fail, I page on days-to-full. At 10× the NIC and the metadata primary break; that is when a cache earns a place, not before. No queue: the user is waiting for the write.
 
 ## Kit artifact
 
