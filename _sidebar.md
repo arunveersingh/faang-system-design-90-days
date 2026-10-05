@@ -33,9 +33,32 @@
   - [Day 27 — Red-team before they do](/days/27-red-team-before-they-do.md)
   - [Day 28 — Mock: image upload and thumbnails](/days/28-mock-image-upload-and-thumbnails.md)
 
+- **Phase 3**
+  - [Day 29 — The guarantee per operation](/days/29-the-guarantee-per-operation.md)
+  - [Day 30 — Linearizability and what you refuse](/days/30-linearizability-and-what-you-refuse.md)
+  - [Day 31 — Partition key, hash, and range](/days/31-partition-key-hash-and-range.md)
+  - [Day 32 — Hot keys and salting](/days/32-hot-keys-and-salting.md)
+  - [Day 33 — Invalidation and TTL](/days/33-invalidation-and-ttl.md)
+  - [Day 34 — Lag, monotonic reads, read-your-writes](/days/34-lag-monotonic-reads-read-your-writes.md)
+  - [Day 35 — Quorums in plain language](/days/35-quorums-in-plain-language.md)
+  - [Day 36 — A leader is a dependency](/days/36-a-leader-is-a-dependency.md)
+  - [Day 37 — Idempotency on an at-least-once path](/days/37-idempotency-on-an-at-least-once-path.md)
+  - [Day 38 — Dedupe and the inbox](/days/38-dedupe-and-the-inbox.md)
+  - [Day 39 — Outbox, not dual write](/days/39-outbox-not-dual-write.md)
+  - [Day 40 — Transactions that stop at the shard](/days/40-transactions-that-stop-at-the-shard.md)
+  - [Day 41 — Sagas and compensation](/days/41-sagas-and-compensation.md)
+  - [Day 42 — Conflicts you can explain](/days/42-conflicts-you-can-explain.md)
+  - [Day 43 — Active-passive or active-active](/days/43-active-passive-or-active-active.md)
+  - [Day 44 — Clocks, ids, and order](/days/44-clocks-ids-and-order.md)
+  - [Day 45 — Schema change and backfill](/days/45-schema-change-and-backfill.md)
+  - [Day 46 — Delete, tombstone, retention](/days/46-delete-tombstone-retention.md)
+  - [Day 47 — Secondary indexes and data-path cost](/days/47-secondary-indexes-and-data-path-cost.md)
+  - [Day 48 — Close the data chapter](/days/48-close-the-data-chapter.md)
+  - [Day 49 — Mock: warehouse inventory reservation](/days/49-mock-warehouse-inventory-reservation.md)
+
 - [Curriculum (map)](/CURRICULUM.md)
 - [Progress checklist](/CHECKLIST.md)
 - [For authors](/PROPOSAL.md)
 
-- **Phase 3+ coming**
-  - Days 29–90 are not written. No pages, so nothing to click.
+- **Phase 4+ coming**
+  - Days 50–90 are not written. No pages, so nothing to click.

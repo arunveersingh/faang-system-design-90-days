@@ -16,9 +16,9 @@ You read this in the browser. No clone. No install. One sitting is 30–40 minut
 
 **[Day 1](days/01-what-the-interview-is-grading.md)** — What the interviewer is grading. This is today's lesson.
 
-**[Checklist](CHECKLIST.md)** — Days 1–28 on paper. A tick in the browser is not saved.
+**[Checklist](CHECKLIST.md)** — Days 1–49 on paper. A tick in the browser is not saved.
 
-Days 1–28 are written. Days 29–90 are coming and are not links, so there is nothing empty to open. The [curriculum](CURRICULUM.md) is the map, not today's lesson.
+Days 1–49 are written. Days 50–90 are coming and are not links, so there is nothing empty to open. The [curriculum](CURRICULUM.md) is the map, not today's lesson.
 
 The log is yours. The [template](design-log/TEMPLATE.md) is only a shape. Copy it into your own notes.
 
