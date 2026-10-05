@@ -204,6 +204,8 @@ flowchart LR
   svc --> disk["NVMe /data/abc/id"]
 ```
 
+Caption it out loud as you draw: "One host. Rows by id, bodies at a path from the id. No cache, no queue, and the numbers in the corner say why." If your page had more boxes than this, write down which number each extra box was answering. A box with no number is the miss to log.
+
 Write path:
 
 ```mermaid
@@ -218,6 +220,8 @@ sequenceDiagram
   S->>P: commit row with token hash
   S-->>C: 201
 ```
+
+The order is the whole diagram: flush, then commit, then 201. If your page had the commit before the fsync, or an "async" arrow anywhere, that is your Design score's ceiling, whatever else you drew. A 4 can also say the crash window without looking: fail before the commit and the client gets an error, with at most an orphan file; lose the response after the commit and the paste exists but nobody holds its id.
 
 Read path:
 
@@ -239,6 +243,8 @@ sequenceDiagram
   end
 ```
 
+Three outcomes, and the third is the senior content. A page that had only "404 or 200" has no way to page anyone on data loss. If metadata itself is unreachable, the answer is 503, not 404, which belongs in the same breath when they push.
+
 Failure, one dependency, the disk. No replica is drawn, so none is claimed:
 
 ```mermaid
@@ -247,6 +253,16 @@ flowchart LR
   svc --> disk[(NVMe)]
   disk -.->|lost| effect[Reads and creates fail and sole copy is gone]
 ```
+
+### Failure, at a 4
+
+The anchor for a 4 is "the crash window you still have after the mitigation you actually drew." On this page, it sounds like this.
+
+Disk dies on the one box: the creator and the reader both get 5xx, and every acknowledged paste is gone if that disk was the only copy. RPO is everything. Restoring 450 million small files is on the order of a day even if a copy exists. Page on disk errors, create error rate, and `body_missing`. Not on 404.
+
+Mitigation drawn: bodies move to object storage; the write becomes PUT, then commit the row, then 201. The window you still have: a PUT that succeeded with a row commit that failed leaves an orphan object. That is waste, not loss, and a reaper with a grace period handles it. What the mitigation does not solve: the metadata primary is still one host, so a dead primary means 503s until a replica is promoted, and with asynchronous replication, any commit that never reached the replica is a create whose 201 you can no longer honor. Saying that last sentence is what separates a 4 from a 3. A 3 names the fix. A 4 names what the fix left behind.
+
+
 
 ### Trade-off and the split
 
@@ -269,7 +285,35 @@ Any one of these, done properly, is the deep dive. Doing all of them is how you 
 - Same 404 for expired and missing, versus 500 when a live row has no file.
 - Why the first extra machine is restore of the bodies, not a CDN.
 
+The first sentence of each, which is where most pages lose the 4:
+
+| Deep dive | Opening sentence that earns it |
+|---|---|
+| Id width | "Ten years at ten million a day is 3.7 × 10^10 mints into 62^12; well under one expected collision, and the unique key remints." |
+| Group commit | "Serial 5 ms fsync is 200 a second and peak is 350; during one flush about two creates arrive, so they share it, and no 201 until it returns." |
+| 404 versus 500 | "404 means gone on purpose. A live row with no file is data loss, so it is a 500 and a page." |
+| First split | "Restoring 450 million small files takes about a day. That, not read QPS, is why the body store changes first." |
+
 Hand-waving, even if the picture was fine: "Kafka for scale," "Cassandra," "a microservice per verb," "the sweeper handles correctness," "Redis because pastebins have caches," "we'll fail over" with no second copy drawn.
+
+### Calibrating the scores you already wrote
+
+Do not change them. Use this to write the amendment line and to score more honestly next time. People with 10–20 years of experience inflate in predictable places.
+
+| Your page says | Tempting score | What the anchor says |
+|---|---|---|
+| "Three replicas for HA" with no user-visible result | Failure 3 | 1. It is the literal anchor. |
+| QPS and storage, no bandwidth, or peak never separated | Estimates 3 | 2 at best. A 3 needs bandwidth, and average and peak kept apart. |
+| A cache "for latency" with no number beside it | Design 3 | 2. Heavier than the numbers. |
+| A correct dive, but the cost was never said | Deep dive 4 | 3. A 4 needs arithmetic or a fault that confirms or changes a decision. |
+| Non-goals listed after the first box was drawn | Requirements 3 | 2. The anchor says they showed up after the drawing. |
+| Same 404 for expired and missing, id length picked by feel | API 4 | 3. A 4 also needs a key scheme justified with a bound. |
+
+If two or more rows describe your page, your gap is not a topic. It is the habit of drawing before deciding. Log that.
+
+### Say this in the room
+
+This is minutes 33 to 35, spoken, on your next run. "What I did not build: accounts, listing, search, edit, rendering, multi-region, a cache, a queue, a CDN. Each is a different product or a tier no number asked for. What I'd change before shipping: the body store, because a dead disk loses every paste and restoring 450 million small files takes about a day. At 10× the first break is egress, about 14 Gbit/s against one NIC, then 174k metadata reads a second against one primary; that's where a cache earns a place. Creates stay synchronous, because the user is waiting for the link. The assumption I'd instrument first is the mean body size, because if it is wrong, the NIC breaks at today's traffic."
 
 ### After you read this
 
