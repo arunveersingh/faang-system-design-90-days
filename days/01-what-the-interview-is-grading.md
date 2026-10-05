@@ -65,7 +65,9 @@ A senior or staff interviewer is not scoring vocabulary. They are scoring whethe
 
 Staff credit is not a seventh signal called "more boxes." It is a sharper trade-off and a failure you can operate. A staff answer often has **fewer** components than a senior answer that got nervous.
 
-Communication is the medium, not a separate project. You structure the hour, you stop talking, you let them pull one deep dive. A beautiful design they could not follow is a miss.
+What staff sounds like on this prompt: you name the non-goal before they ask; you refuse a tier with a unit, not a vibe; when they pull one deep dive, you stay there for five minutes instead of renaming every box. The deep dive they usually pull on a pastebin is durability of create, the id space, expiry correctness, or the box dying. If you spent minute 12 inventing a bus, you have no time left when they ask the real question.
+
+Communication is the medium, not a separate project. You structure the hour, you stop talking, you let them pull one deep dive. A beautiful design they could not follow is a miss. Silence after a locked non-goal is signal. Filling the silence with Kafka is not.
 
 ## What is not graded
 
@@ -90,7 +92,7 @@ This is the script. Days 2–6 teach the steps. Day 7 runs them on a timer. Memo
 | 26:00–33:00 | Their deep dive | One of: id space, durability, expiry, or the box dying |
 | 33:00–35:00 | Close | What you did not build, and the 10× break |
 
-If they interrupt at minute 6 with "let's draw," you draw, and you write the missing number in the corner so it does not vanish. You do not pretend the interruption was your plan.
+If they interrupt at minute 6 with "let's draw," you draw, and you write the missing number in the corner so it does not vanish. You do not pretend the interruption was your plan. If they interrupt with "skip capacity, we know the scale," write the assumption they just granted in one line anyway: without it, the 10× question at minute 33 has nothing to stand on.
 
 ## Requirements, at grading altitude
 
@@ -112,6 +114,8 @@ The design a senior defends in week 1 is one service that stores metadata and by
 
 The graded move is the refusal. "I am not adding a CDN until egress says so. I am not adding a queue because the user is waiting for the write." That refusal is the design, at this altitude.
 
+A wrong refusal sounds like taste: "I like simple systems." A right refusal sounds like a unit: "I have not shown egress that needs an edge, and the create path has no work the user is willing to wait off-path for." If they push "but every production system has a cache," answer with the miss you have not designed yet and the stale read you would own on delete. You are not refusing caches forever. You are refusing to invent a problem the numbers have not asked.
+
 ## Diagrams
 
 ![Whiteboard of the graded hour: scope, then numbers, then API, then one box, then what dies](assets/day-01-the-hour.svg)
@@ -129,6 +133,8 @@ flowchart LR
   design --> trade[Trade-off and 10x]
   trade --> fail[One failure the user sees]
 ```
+
+Six stops, in order. Skipping from the prompt to "design" is how a tour starts. If you cannot redraw this sequence from memory, you do not own the hour yet, whatever pastebin you could draw.
 
 ### Graded signal versus a tour
 
@@ -149,15 +155,27 @@ flowchart TB
   end
 ```
 
+The left column is six sentences you can say with a number or a failure attached. The right column is color that burns the deep-dive clock. A staff picture often looks smaller than the tour because the tour was never graded.
+
+## Failure the user sees, at grading altitude
+
+You do not need the full pastebin drawn to practice this signal. Pick **one** dependency and finish the sentence: what the creator sees, what the reader sees, and what pages you.
+
+On a one-box pastebin altitude, the dependency is usually the host, the disk under the bodies, or the primary that holds the row. Creator-visible: create returns an error, or hangs past the client's patience. Reader-visible: the link 5xxs, or — worse, if you lied about durability — a 201 the next GET cannot find. That second case is not "eventual." It is a broken ack. Page on create error rate and on "row exists, body missing," not on 404 rate: 404 is a normal miss, an expired paste, or a bad link.
+
+What does not count as failure signal: "we'll have replicas" with no sentence about what the user sees in the window before promotion, and no sentence about whether a create that already returned 201 can 404 after. Replicas without that sentence are furniture.
+
 ## Trade-offs
 
 **Choice.** Spend the first ten minutes on scope and numbers. Do not open with a topology.
 
 **Alternative.** Start drawing "a standard web scale architecture" immediately, and backfill requirements if they ask.
 
-**What you give up by choosing scope first.** You might get cut off before the picture is pretty. A partial design with locked non-goals still scores. A pretty picture with no non-goals does not.
+**What you give up by choosing scope first.** You might get cut off before the picture is pretty. A partial design with locked non-goals still scores. A pretty picture with no non-goals does not. You also give up the comfort of looking "senior" in minute two. Looking busy with boxes is not the same as being graded.
 
-**10× break.** Ten times the traffic does not make the opening move wrong. It asks which box dies. The candidate who drew a CDN, a cache, and a queue in minute 2 still cannot answer, because they never computed the byte rate those boxes were supposed to absorb. The 10× question punishes a tour harder than it punishes a small design. You will compute the actual break on day 3 and attach it to a box on day 5. Today the point is: you cannot name a 10× break you have not measured.
+**Why you still choose it.** The deep dive they actually care about — durability, id space, expiry, the dead box — needs the numbers and the non-goals underneath it. A tour leaves you nowhere to stand when they ask what the user sees.
+
+**10× break.** Ten times the traffic does not make the opening move wrong. It asks which box dies. The candidate who drew a CDN, a cache, and a queue in minute 2 still cannot answer, because they never computed the byte rate those boxes were supposed to absorb. The 10× question punishes a tour harder than it punishes a small design. You will compute the actual break on day 3 and attach it to a box on day 5. Today the point is: you cannot name a 10× break you have not measured, and "we'd scale out" is not a break — it is a hope without a unit.
 
 ## Talking points
 
@@ -165,15 +183,25 @@ flowchart TB
 
 **Say.** "Reads will dominate if a link is shared. Storage will be dominated by how long bytes live, not by write QPS. I don't have the figures yet; I won't invent a round number I can't divide back to."
 
+**Say.** "If one dependency dies, I want the user-visible result and the page named before I add a second region. A replica I have not reasoned about is not a mitigation I have."
+
 **Hand-waving.** "We'll use a microservice architecture." That sentence has no user, no number, and no failure.
 
 **Hand-waving.** "Kafka for scale." Nothing in the prompt is asynchronous. Naming a log does not create work that can wait.
 
 **Hand-waving.** "Cassandra because it scales horizontally." You have not shown a query the single primary key cannot serve.
 
+**Hand-waving.** "High availability with three replicas." Availability of what path, in what failure, with what user-visible result during the window? Without those, you named a topology.
+
 **If they ask "what are you optimizing for?"** Say: a correct create and a correct read, durable before the ack, simple enough to operate. Not a platform.
 
 **If they ask you to list technologies.** Name them after the boxes, as implementations of an access pattern, and keep going. Do not let the list become the interview.
+
+**If they say "just draw something so we have a picture."** Draw the smallest thing that can create and read, put a blank for the number you have not locked, and say out loud which non-goals still apply. Do not reward the interruption by inventing tiers.
+
+## Say this in the room
+
+I am grading myself on six things: scope before boxes, numbers with assumptions, the create and read and the lookup key, the smallest design that meets those numbers, one real trade-off with a 10× break, and one dependency down with a user-visible result and a page. I am not grading myself on vendor names, on a bus nothing waits on, or on products you did not ask for. Reads will dominate if the link is shared; retained bytes will dominate storage; I will not invent a QPS I cannot recompute. I will refuse a CDN until egress asks, and a queue because the user is waiting on the write. If you pull a deep dive, I would rather spend it on durability of the ack, the id space, expiry, or the box dying than on adding tiers.
 
 ## Kit artifact
 
