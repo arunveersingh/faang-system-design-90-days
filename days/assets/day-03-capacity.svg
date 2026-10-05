@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 250" role="img" aria-label="Capacity order: daily creates to write QPS, read QPS, peak, then resident bytes">
+  <rect width="860" height="250" fill="#fffef8"/>
+  <defs>
+    <marker id="a" markerWidth="12" markerHeight="12" refX="10" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 Z" fill="#1c1917"/>
+    </marker>
+  </defs>
+
+  <rect x="16" y="36" width="150" height="64" fill="#fffef8" stroke="#1c1917" stroke-width="3" rx="8"/>
+  <text x="91" y="64" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" font-weight="700" fill="#1c1917">10M / day</text>
+  <text x="91" y="84" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#1c1917">creates</text>
+  <line x1="166" y1="68" x2="196" y2="68" stroke="#1c1917" stroke-width="4" marker-end="url(#a)"/>
+  <rect x="204" y="36" width="140" height="64" fill="#fffef8" stroke="#1c1917" stroke-width="3" rx="8"/>
+  <text x="274" y="74" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" font-weight="700" fill="#1c1917">116 writes/s</text>
+  <line x1="344" y1="68" x2="374" y2="68" stroke="#1c1917" stroke-width="4" marker-end="url(#a)"/>
+  <rect x="382" y="36" width="150" height="64" fill="#fffef8" stroke="#1c1917" stroke-width="3" rx="8"/>
+  <text x="457" y="64" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" font-weight="700" fill="#1c1917">5,800 reads/s</text>
+  <text x="457" y="84" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#1c1917">× 50</text>
+  <line x1="532" y1="68" x2="562" y2="68" stroke="#1c1917" stroke-width="4" marker-end="url(#a)"/>
+  <rect x="570" y="36" width="160" height="64" fill="#fffef8" stroke="#1c1917" stroke-width="3" rx="8"/>
+  <text x="650" y="64" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" font-weight="700" fill="#1c1917">17,400 peak</text>
+  <text x="650" y="84" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#1c1917">× 3</text>
+  <rect x="204" y="150" width="180" height="64" fill="#fffef8" stroke="#1c1917" stroke-width="3" rx="8"/>
+  <text x="294" y="188" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" font-weight="700" fill="#1c1917">100 GB / day in</text>
+  <line x1="384" y1="182" x2="430" y2="182" stroke="#1c1917" stroke-width="4" marker-end="url(#a)"/>
+  <rect x="438" y="150" width="200" height="64" fill="#fffef8" stroke="#1c1917" stroke-width="3" rx="8"/>
+  <text x="538" y="178" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" font-weight="700" fill="#1c1917">4.5 TB resident</text>
+  <text x="538" y="198" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="13" fill="#1c1917">45-day mix</text>
+
+</svg>

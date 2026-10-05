@@ -3,6 +3,13 @@
 
 # Day 5 — One box, and why it breaks
 
+**Do now**
+
+1. Set a timer.
+2. Attempt the problem. Stop at the attempt line. Do not scroll.
+3. Then read.
+
+
 ## Time box
 
 40 minutes.
@@ -185,17 +192,24 @@ User-visible result: the site is down, and if this disk was the only copy, the p
 
 **Choice.** One host, group commit, prefix-sharded files, Postgres for the row. No cache.
 
+
 **Alternative A.** One file's worth of architecture: body inline in Postgres as a large column.
+
 
 **What A gives up if you refuse it (you do).** You give up a single transactional commit that makes the crash window smaller: row and body would commit together. You accept orphans and a janitor, and you accept a directory layout.
 
+
 **Why you refuse A.** The 4.5 TB, the WAL amplification of 10 KB to 1 MB values, vacuum, and backup of a database that is mostly dead bytes. The row is a claim about bytes, not the bytes. You want to be able to move the bytes to object storage later without rewriting the API. An inline column delays that move and makes today's backups worse. The crash window of "fsync file, then commit row" is understandable. Prefer it.
+
 
 **Alternative B.** Object storage immediately, service and Postgres still "small," bucket elsewhere.
 
+
 **What you give up by not choosing B today.** A cleaner durability ack (the PUT) and no inode estate. You are choosing a picture you can draw and crash-reason about in one interview, at a QPS that does not need the network hop.
 
+
 **When B wins.** As soon as the question is "ship it" or "the disk died" or "how do you restore," not when the question is "does one box serve 17k reads." Take B as the first split. Do not take B as the first drawing unless they forbid local disk.
+
 
 **10× break.** Peak egress goes to about **14 Gbit/s**, which does not fit one 10 Gbit NIC. Peak metadata reads go to about **174k/s**, which you do not promise from one primary. Peak body writes are only about 35 MB/s; the disk's byte rate is not the 10× write break. Group commit gets fatter and must still finish. Resident bodies become about 45 TB and about 4.5 billion objects, which makes the inode and restore problem you already have at 1× into the main event.
 

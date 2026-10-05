@@ -1,7 +1,13 @@
 <!-- day-nav -->
-[← Start](../START.md) · [Day 2 — Vague prompt to requirements →](02-vague-prompt-to-requirements.md)
+[← Start](../START.md) · [Day 2 — Vague problem to requirements →](02-vague-prompt-to-requirements.md)
 
 # Day 1 — What the interviewer is grading
+
+**Do now**
+
+1. Set a timer.
+2. Attempt the problem. Stop at the attempt line. Do not scroll.
+3. Then read.
 
 ## Time box
 
@@ -108,6 +114,8 @@ The graded move is the refusal. "I am not adding a CDN until egress says so. I a
 
 ## Diagrams
 
+![Whiteboard of the graded hour: scope, then numbers, then API, then one box, then what dies](assets/day-01-the-hour.svg)
+
 You should be able to redraw both of these without the page. They are diagrams of the **hour**, not of the pastebin. The pastebin pictures start on day 2.
 
 ### Where the time goes
@@ -183,9 +191,9 @@ Copy [the template](../design-log/TEMPLATE.md) only if you want to keep today. M
 
 Prompt for today, five lines: the six signals you will actually practice, and one sentence you will stop saying in interviews. That sentence is the gap.
 
-Next: [Day 2 — Vague prompt to requirements](02-vague-prompt-to-requirements.md).
+Next: [Day 2 — Vague problem to requirements](02-vague-prompt-to-requirements.md).
 
 ---
 
 <!-- day-nav -->
-[← Start](../START.md) · [Day 2 — Vague prompt to requirements →](02-vague-prompt-to-requirements.md)
+[← Start](../START.md) · [Day 2 — Vague problem to requirements →](02-vague-prompt-to-requirements.md)

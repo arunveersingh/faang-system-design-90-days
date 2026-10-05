@@ -1,7 +1,13 @@
 <!-- day-nav -->
-[← Day 2 — Vague prompt to requirements](02-vague-prompt-to-requirements.md) · [Day 4 — API and data model first →](04-api-and-data-model-first.md)
+[← Day 2 — Vague problem to requirements](02-vague-prompt-to-requirements.md) · [Day 4 — API and data model first →](04-api-and-data-model-first.md)
 
 # Day 3 — Capacity math out loud
+
+**Do now**
+
+1. Set a timer.
+2. Attempt the problem. Stop at the attempt line. Do not scroll.
+3. Then read.
 
 ## Time box
 
@@ -135,6 +141,8 @@ Ids: you will check on day 4 that the key width still works at this 10×, over y
 
 ## Diagrams
 
+![Whiteboard: 10 million creates a day becomes 116 writes a second, 17,400 peak reads, and 4.5 TB](assets/day-03-capacity.svg)
+
 ### The only order that stays checkable
 
 ```mermaid
@@ -221,4 +229,4 @@ Next: [Day 4 — API and data model first](04-api-and-data-model-first.md).
 ---
 
 <!-- day-nav -->
-[← Day 2 — Vague prompt to requirements](02-vague-prompt-to-requirements.md) · [Day 4 — API and data model first →](04-api-and-data-model-first.md)
+[← Day 2 — Vague problem to requirements](02-vague-prompt-to-requirements.md) · [Day 4 — API and data model first →](04-api-and-data-model-first.md)

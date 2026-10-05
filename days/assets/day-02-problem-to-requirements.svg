@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 280" role="img" aria-label="A one-line problem locks behavior, constraints, and non-goals before any server">
+  <rect width="780" height="280" fill="#fffef8"/>
+  <defs>
+    <marker id="a" markerWidth="12" markerHeight="12" refX="10" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 Z" fill="#1c1917"/>
+    </marker>
+  </defs>
+
+  <rect x="24" y="90" width="200" height="90" fill="#fffef8" stroke="#1c1917" stroke-width="3" rx="8"/>
+  <text x="124" y="128" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" font-weight="700" fill="#1c1917">Paste text.</text>
+  <text x="124" y="152" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" font-weight="700" fill="#1c1917">Share a link.</text>
+  <line x1="224" y1="135" x2="300" y2="70" stroke="#1c1917" stroke-width="4" marker-end="url(#a)"/>
+  <line x1="224" y1="135" x2="300" y2="140" stroke="#1c1917" stroke-width="4" marker-end="url(#a)"/>
+  <line x1="224" y1="135" x2="300" y2="210" stroke="#1c1917" stroke-width="4" marker-end="url(#a)"/>
+  <rect x="308" y="36" width="200" height="56" fill="#fffef8" stroke="#1c1917" stroke-width="3" rx="8"/>
+  <text x="408" y="70" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="18" font-weight="700" fill="#1c1917">Behavior</text>
+  <rect x="308" y="112" width="200" height="56" fill="#fffef8" stroke="#1c1917" stroke-width="3" rx="8"/>
+  <text x="408" y="146" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="18" font-weight="700" fill="#1c1917">Constraints</text>
+  <rect x="308" y="188" width="200" height="56" fill="#fffef8" stroke="#1c1917" stroke-width="3" rx="8"/>
+  <text x="408" y="222" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="18" font-weight="700" fill="#1c1917">Non-goals</text>
+  <rect x="560" y="100" width="190" height="70" fill="#fffef8" stroke="#1c1917" stroke-width="3" rx="8"/>
+  <text x="655" y="140" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="18" font-weight="700" fill="#1c1917">Servers first</text>
+  <line x1="575" y1="112" x2="735" y2="158" stroke="#9f1239" stroke-width="5"/>
+
+</svg>

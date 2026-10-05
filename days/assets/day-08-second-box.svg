@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 300" role="img" aria-label="Four stateless app processes in front of one data host">
+  <rect width="760" height="300" fill="#fffef8"/>
+  <defs>
+    <marker id="a" markerWidth="12" markerHeight="12" refX="10" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 Z" fill="#1c1917"/>
+    </marker>
+  </defs>
+
+  <rect x="40" y="24" width="110" height="56" fill="#fffef8" stroke="#1c1917" stroke-width="3" rx="8"/>
+  <text x="95" y="58" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="18" font-weight="700" fill="#1c1917">App</text>
+  <rect x="180" y="24" width="110" height="56" fill="#fffef8" stroke="#1c1917" stroke-width="3" rx="8"/>
+  <text x="235" y="58" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="18" font-weight="700" fill="#1c1917">App</text>
+  <rect x="320" y="24" width="110" height="56" fill="#fffef8" stroke="#1c1917" stroke-width="3" rx="8"/>
+  <text x="375" y="58" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="18" font-weight="700" fill="#1c1917">App</text>
+  <rect x="460" y="24" width="110" height="56" fill="#fffef8" stroke="#1c1917" stroke-width="3" rx="8"/>
+  <text x="515" y="58" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="18" font-weight="700" fill="#1c1917">App</text>
+  <line x1="95" y1="80" x2="250" y2="150" stroke="#1c1917" stroke-width="4" marker-end="url(#a)"/>
+  <line x1="235" y1="80" x2="300" y2="150" stroke="#1c1917" stroke-width="4" marker-end="url(#a)"/>
+  <line x1="375" y1="80" x2="360" y2="150" stroke="#1c1917" stroke-width="4" marker-end="url(#a)"/>
+  <line x1="515" y1="80" x2="420" y2="150" stroke="#1c1917" stroke-width="4" marker-end="url(#a)"/>
+  <rect x="180" y="156" width="320" height="120" fill="#fffef8" stroke="#1c1917" stroke-width="3" rx="8"/>
+  <text x="340" y="186" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="18" font-weight="700" fill="#1c1917">Data host</text>
+  <text x="340" y="214" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" fill="#1c1917">Postgres rows</text>
+  <text x="340" y="240" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="16" fill="#1c1917">NVMe bytes</text>
+  <text x="620" y="50" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" font-weight="700" fill="#1c1917">17,400</text>
+  <text x="620" y="70" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#1c1917">reads peak</text>
+  <text x="620" y="98" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" font-weight="700" fill="#1c1917">8,000</text>
+  <text x="620" y="118" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" fill="#1c1917">per process</text>
+
+</svg>

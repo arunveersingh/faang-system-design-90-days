@@ -1,12 +1,12 @@
 # Curriculum
 
-> **This is the map, not today's lesson.** Days 1–7 are written. Start at [Day 1](days/01-what-the-interview-is-grading.md). Days 8–90 are titles until a page exists.
+> **This is the map, not today's lesson.** Days 1–28 are written. Start at [Day 1](days/01-what-the-interview-is-grading.md). Days 29–90 are titles until a page exists.
 
 Interview-depth system design for senior and staff loops. One day, one sitting. Pure distributed systems: no AI or ML lessons.
 
-This file is the 90-day assignment list, adapted from the course topic list for this repo. **Phase 1 (days 1–7) is written** under `days/`. Days 8–90 are assigned below and are not in the repo yet. Do not treat a title as a lesson until a page exists.
+This file is the 90-day assignment list, adapted from the course topic list for this repo. **Phase 1 (days 1–7) and Phase 2 (days 8–28) are written** under `days/`. Days 29–90 are assigned below and are not in the repo yet. Do not treat a title as a lesson until a page exists.
 
-Prompt pages under [`prompts/`](prompts/README.md) are the live bank. If Arunveer or the team updates a prompt, **the prompt file wins** over a title here. Read the prompt page on this site before a mock.
+Problem pages under [`prompts/`](prompts/README.md) are the problem bank. The folder is still named `prompts/`. If a problem file is updated, **the problem file wins** over a title here. Read the problem page on this site before a mock.
 
 Appendices at the bottom are **open**: optional, not part of the 90 days, and not a substitute for a mock. The notes here are the whole appendix until a loop is actually on the calendar. Pointers: [`appendices/README.md`](appendices/README.md).
 
@@ -20,9 +20,9 @@ Interview-depth system design for senior and staff loops. One day, one sitting, 
 - Audience is engineers with 10+ years of experience, targeting senior and staff loops up to about 20 years of depth, not new grads.
 - Self-paced on GitHub, 30–40 minutes a day, text and diagrams in v1. Video may come later and is not required. No live cohort.
 - One shared method for every company loop. Depth stays something you can say on a whiteboard. Company quirks and classic papers are optional appendices after day 90, not extra days.
-- No certificate. The design log is the artifact. Prompt pages are kept current by Arunveer and team. The kit is a separate product and is not required to start.
+- No certificate. The design log is the artifact. Problem pages are kept current by Arunveer and team. The kit is a separate product and is not required to start.
 
-Days 1–6 teach the method on a pastebin. That pastebin is the closed-book prompt on day 7 only, because the lesson topics that week are the method steps, not a second product. From day 28 on, a mock prompt is never that week's lesson topic.
+Days 1–6 teach the method on a pastebin. That pastebin is the closed-book problem on day 7 only, because the lesson topics that week are the method steps, not a second product. From day 28 on, a mock problem is never that week's lesson topic.
 
 ## Phase 1 — Hearing the problem (Days 1–7)
 
@@ -31,7 +31,7 @@ Install the hour: requirements and numbers before boxes, then a diagram you can 
 | Day | Title | Type | Intent |
 |---|---|---|---|
 | 1 | [What the interviewer is grading](days/01-what-the-interview-is-grading.md) | Lesson | Facing a senior or staff loop, leave able to separate graded signal (scope, trade-offs, operability) from a technology tour. |
-| 2 | [Vague prompt to requirements](days/02-vague-prompt-to-requirements.md) | Lesson | Facing a one-line prompt, leave able to lock behavior, constraints, and non-goals before any box is drawn. |
+| 2 | [Vague problem to requirements](days/02-vague-prompt-to-requirements.md) | Lesson | Facing a one-line problem, leave able to lock behavior, constraints, and non-goals before any box is drawn. |
 | 3 | [Capacity math out loud](days/03-capacity-math-out-loud.md) | Lesson | Facing a blank estimate, leave able to compute QPS, storage, and bandwidth out loud with every assumption visible. |
 | 4 | [API and data model first](days/04-api-and-data-model-first.md) | Lesson | Facing pressure to draw servers, leave able to put endpoints, retention, and the real lookup key down first. |
 | 5 | [One box, and why it breaks](days/05-one-box-and-why-it-breaks.md) | Lesson | Facing pressure to distribute immediately, leave able to show a correct single box and the first limit that forces a split. |
@@ -40,33 +40,36 @@ Install the hour: requirements and numbers before boxes, then a diagram you can 
 
 ## Phase 2 — First distributed design (Days 8–28)
 
-Each new box is a fix for a break in the pastebin, not a catalog of tools. Day 28 is a different prompt that still needs a cache, a durable store, and a queue.
+Each new box is a fix for a break in the pastebin, not a catalog of tools. Day 28 is a different problem. Do not treat this map as the boxes that mock requires.
 
 | Day | Title | Type | Intent |
 |---|---|---|---|
-| 8 | The second box | Lesson | Facing a saturated process, leave able to split a stateless app tier and say where session and file state still sit. |
-| 9 | Load balancing and draining | Lesson | Facing uneven load, leave able to choose balancing, health checks, and drain behavior and what each does to in-flight work. |
-| 10 | Cache-aside for the melted read | Lesson | Facing a database melted by reads, leave able to add cache-aside and name the miss path and what must not be cached. |
-| 11 | Hot-key stampede | Lesson | Facing a hot pastebin key, leave able to stop a stampede without treating a TTL as invalidation. |
-| 12 | SQL or NoSQL from the broken query | Lesson | Facing a query the current store cannot serve, leave able to choose SQL or NoSQL from the access pattern and name what you give up. |
-| 13 | Replication and the lagging read | Lesson | Facing a durability or read-scale wall, leave able to add replicas and refuse a lagging replica for reads that cannot lie. |
-| 14 | Object storage for the body | Lesson | Facing large bodies in the database, leave able to move bytes to object storage and name the orphan-object failure. |
-| 15 | CDN in front of public bytes | Lesson | Facing origin bandwidth on public reads, leave able to place a CDN and say what stays origin-authoritative. |
-| 16 | Queue for work the user does not wait on | Lesson | Facing work that should not block the response, leave able to add a queue and describe the backlog the user can see. |
-| 17 | Rate limits and abuse | Lesson | Facing a public write API, leave able to put rate limits and abuse control on the path before the expensive store. |
-| 18 | Consistent hashing when nodes change | Lesson | Facing cache or storage nodes that come and go, leave able to use consistent hashing and say when a fixed slot map is simpler. |
-| 19 | Backpressure and load shedding | Lesson | Facing a dependency slower than arrivals, leave able to apply backpressure or shed load and say who feels it. |
-| 20 | Timeouts and retry storms | Lesson | Facing a slow dependency, leave able to set timeouts and retries so a blip cannot multiply into a storm. |
-| 21 | Capacity redo with visible assumptions | Lesson | Facing a design that only works at the average, leave able to redo the estimate with fan-out and a stated cache-hit assumption. |
-| 22 | Noisy neighbor and fairness | Lesson | Facing tenants on one cluster, leave able to cap a noisy neighbor so one key cannot spend the whole budget. |
-| 23 | Read path and write path | Lesson | Facing one tangled picture, leave able to narrate the read path and the write path as separate sequences. |
-| 24 | The order-of-magnitude break | Lesson | Facing a large jump in traffic, leave able to name the first component that breaks and the fix you would reach for next. |
-| 25 | Failure overlay on the pastebin | Lesson | Facing "what if this dies," leave able to overlay one dependency failure and the user-visible result. |
-| 26 | End-to-end distributed pastebin | Lesson | Facing a full loop on the spine, leave able to assemble the distributed pastebin in one interview-shaped pass. |
-| 27 | Red-team before they do | Lesson | Facing your own finished design, leave able to find the holes a staff interviewer would open and patch the reasoning. |
-| 28 | Mock: image upload and thumbnails | Mock | Facing a prompt that is not the pastebin, leave able to design image upload and thumbnails with a cache, a durable store, and a queue, then log a self-score. |
+| 8 | [The second box](days/08-the-second-box.md) | Lesson | Facing a saturated process, leave able to split a stateless app tier and say where session and file state still sit. |
+| 9 | [Load balancing and draining](days/09-load-balancing-and-draining.md) | Lesson | Facing uneven load, leave able to choose balancing, health checks, and drain behavior and what each does to in-flight work. |
+| 10 | [Cache-aside for the melted read](days/10-cache-aside-for-the-melted-read.md) | Lesson | Facing a database melted by reads, leave able to add cache-aside and name the miss path and what must not be cached. |
+| 11 | [Hot-key stampede](days/11-hot-key-stampede.md) | Lesson | Facing a hot pastebin key, leave able to stop a stampede without treating a TTL as invalidation. |
+| 12 | [SQL or NoSQL from the broken query](days/12-sql-or-nosql-from-the-broken-query.md) | Lesson | Facing a query the current store cannot serve, leave able to choose SQL or NoSQL from the access pattern and name what you give up. |
+| 13 | [Replication and the lagging read](days/13-replication-and-the-lagging-read.md) | Lesson | Facing a durability or read-scale wall, leave able to add replicas and refuse a lagging replica for reads that cannot lie. |
+| 14 | [Object storage for the body](days/14-object-storage-for-the-body.md) | Lesson | Facing large bodies in the database, leave able to move bytes to object storage and name the orphan-object failure. |
+| 15 | [CDN in front of public bytes](days/15-cdn-in-front-of-public-bytes.md) | Lesson | Facing origin bandwidth on public reads, leave able to place a CDN and say what stays origin-authoritative. |
+| 16 | [Queue for work the user does not wait on](days/16-queue-for-work-the-user-does-not-wait-on.md) | Lesson | Facing work that should not block the response, leave able to add a queue and describe the backlog the user can see. |
+| 17 | [Rate limits and abuse](days/17-rate-limits-and-abuse.md) | Lesson | Facing a public write API, leave able to put rate limits and abuse control on the path before the expensive store. |
+| 18 | [Consistent hashing when nodes change](days/18-consistent-hashing-when-nodes-change.md) | Lesson | Facing cache or storage nodes that come and go, leave able to use consistent hashing and say when a fixed slot map is simpler. |
+| 19 | [Backpressure and load shedding](days/19-backpressure-and-load-shedding.md) | Lesson | Facing a dependency slower than arrivals, leave able to apply backpressure or shed load and say who feels it. |
+| 20 | [Timeouts and retry storms](days/20-timeouts-and-retry-storms.md) | Lesson | Facing a slow dependency, leave able to set timeouts and retries so a blip cannot multiply into a storm. |
+| 21 | [Capacity redo with visible assumptions](days/21-capacity-redo-with-visible-assumptions.md) | Lesson | Facing a design that only works at the average, leave able to redo the estimate with fan-out and a stated cache-hit assumption. |
+| 22 | [Noisy neighbor and fairness](days/22-noisy-neighbor-and-fairness.md) | Lesson | Facing tenants on one cluster, leave able to cap a noisy neighbor so one key cannot spend the whole budget. |
+| 23 | [Read path and write path](days/23-read-path-and-write-path.md) | Lesson | Facing one tangled picture, leave able to narrate the read path and the write path as separate sequences. |
+| 24 | [The order-of-magnitude break](days/24-the-order-of-magnitude-break.md) | Lesson | Facing a large jump in traffic, leave able to name the first component that breaks and the fix you would reach for next. |
+| 25 | [Failure overlay on the pastebin](days/25-failure-overlay-on-the-pastebin.md) | Lesson | Facing "what if this dies," leave able to overlay one dependency failure and the user-visible result. |
+| 26 | [End-to-end distributed pastebin](days/26-end-to-end-distributed-pastebin.md) | Lesson | Facing a full loop on the spine, leave able to assemble the distributed pastebin in one interview-shaped pass. |
+| 27 | [Red-team before they do](days/27-red-team-before-they-do.md) | Lesson | Facing your own finished design, leave able to find the holes a staff interviewer would open and patch the reasoning. |
+| 28 | [Mock: image upload and thumbnails](days/28-mock-image-upload-and-thumbnails.md) | Mock | Facing an interview problem that is not the pastebin, leave able to design image upload and thumbnails from the product behavior, then log a self-score. |
 
 ## Phase 3 — Data and consistency (Days 29–49)
+
+**Coming. Not written.** These rows are titles only. They are not links, so there is no empty page to open.
+
 
 Guarantees, keys, and the failure you accept. Consensus stays a dependency; Raft is appendix reading, not this phase.
 
@@ -92,9 +95,12 @@ Guarantees, keys, and the failure you accept. Consensus stays a dependency; Raft
 | 46 | Delete, tombstone, retention | Lesson | Facing a delete, leave able to use tombstones and retention so replicas and indexes do not resurrect the row. |
 | 47 | Secondary indexes and data-path cost | Lesson | Facing an extra index or replica, leave able to state the write amplification, storage class, or egress you just bought. |
 | 48 | Close the data chapter | Lesson | Facing the end of the data section, leave able to close on guarantee, partition plan, and the failure you accept. |
-| 49 | Mock: warehouse inventory reservation | Mock | Facing a prompt that is not this week's schema, index, or retention lesson, leave able to reserve inventory on a partition key without overselling, then log a self-score. |
+| 49 | Mock: warehouse inventory reservation | Mock | Facing a problem that is not this week's schema, index, or retention lesson, leave able to reserve inventory on a partition key without overselling, then log a self-score. |
 
 ## Phase 4 — Product-shaped systems (Days 50–77)
+
+**Coming. Not written.** These rows are titles only. They are not links, so there is no empty page to open.
+
 
 One product a day, or a variant whose failure mode is new. Inventory on day 49, assigned seats on day 61, and a flash-sale queue on day 70 are three different problems. Ranking models stay out.
 
@@ -113,7 +119,7 @@ One product a day, or a variant whose failure mode is new. Inventory on day 49, 
 | 60 | Nearby | Lesson | Facing "what is near me," leave able to index points, bound staleness, and avoid leaking a precise location. |
 | 61 | Ticket booking | Lesson | Facing assigned seats, leave able to hold specific seats with a TTL so you neither oversell nor lock the whole venue. |
 | 62 | Metrics ingestion | Lesson | Facing a firehose of measurements, leave able to ingest points with a cardinality limit so one tenant cannot blow the store. |
-| 63 | Mock: job scheduler | Mock | Facing an unseen prompt, leave able to design a job scheduler with leases, missed fires, and duplicate runs, not this week's search, video, location, ticket, or metrics lessons. |
+| 63 | Mock: job scheduler | Mock | Facing an unseen problem, leave able to design a job scheduler with leases, missed fires, and duplicate runs, not this week's search, video, location, ticket, or metrics lessons. |
 | 64 | Metrics query and alerts | Lesson | Facing graphs and pages rather than ingest, leave able to query downsampled series and stop one alert rule from paging on every blip. |
 | 65 | Payments | Lesson | Facing money movement, leave able to authorize and capture against an idempotent ledger so a retry cannot move money twice. |
 | 66 | Payment reconciliation | Lesson | Facing a provider and a ledger that disagree, leave able to find the mismatch and repair it without a silent rewrite of history. |
@@ -131,6 +137,9 @@ One product a day, or a variant whose failure mode is new. Inventory on day 49, 
 
 ## Phase 5 — Failure and senior signal (Days 78–84)
 
+**Coming. Not written.** These rows are titles only. They are not links, so there is no empty page to open.
+
+
 Staff credit is the failure you can operate, pay for, and migrate. Day 84 is a product mock with a scripted outage, not a repeat of these lectures.
 
 | Day | Title | Type | Intent |
@@ -141,20 +150,23 @@ Staff credit is the failure you can operate, pay for, and migrate. Day 84 is a p
 | 81 | Observability that pages a human | Lesson | Facing an on-call question, leave able to name the dashboard, the page, and the first runbook step for a failure you designed. |
 | 82 | Cost as a spoken trade-off | Lesson | Facing a design that is correct and expensive, leave able to cut replicas, egress, or retention and say the user-visible risk. |
 | 83 | Migration while live | Lesson | Facing a system that must change shape, leave able to migrate with a dual path and a rollback while writes continue. |
-| 84 | Mock: delivery dispatch with a late failure | Mock | Facing a dispatch prompt that is not an SLO or migration lecture, leave able to design matching and, near minute 25, lose a region or the location store. |
+| 84 | Mock: delivery dispatch with a late failure | Mock | Facing a dispatch problem that is not an SLO or migration lecture, leave able to design matching and, near minute 25, lose a region or the location store. |
 
 ## Phase 6 — Mocks and the kit (Days 85–90)
+
+**Coming. Not written.** These rows are titles only. They are not links, so there is no empty page to open.
+
 
 Three full loops: read-heavy, write-heavy, realtime. Debriefs are their own days. Day 90 is kit-run: no lesson beside the timer.
 
 | Day | Title | Type | Intent |
 |---|---|---|---|
 | 85 | Kit hookup and the design log | Kit | Facing the last mocks without a shared ritual, leave able to run a timer, the senior rubric, and a design log, and see where the separate kit plugs in. |
-| 86 | Mock: article serving (read-heavy) | Mock | Facing a read-heavy prompt that is not the kit-setup lesson, leave able to design article serving with hot pages and invalidation on publish, inside the time box. |
+| 86 | Mock: article serving (read-heavy) | Mock | Facing a read-heavy problem that is not the kit-setup lesson, leave able to design article serving with hot pages and invalidation on publish, inside the time box. |
 | 87 | Debrief: read-heavy mock | Debrief | Facing the day-86 writeup, leave able to score it on the senior rubric and rewrite only the weakest section into the design log. |
-| 88 | Mock: event intake (write-heavy) | Mock | Facing a write-heavy prompt, leave able to design event intake with dedupe, late events, and a durable sink, and leave a complete design-log entry. |
+| 88 | Mock: event intake (write-heavy) | Mock | Facing a write-heavy problem, leave able to design event intake with dedupe, late events, and a durable sink, and leave a complete design-log entry. |
 | 89 | Debrief: write-heavy mock | Debrief | Facing the day-88 writeup, leave able to score it, compare it with day 86, and log the one staff-level gap to close before the final mock. |
-| 90 | Mock: realtime lobby (kit run) | Mock | Facing a realtime loop with no lesson beside it, leave able to run the kit's current prompt (fallback: multiplayer lobby) and leave the design log as the only artifact. |
+| 90 | Mock: realtime lobby (kit run) | Mock | Facing a realtime loop with no lesson beside it, leave able to run the kit's current problem (fallback: multiplayer lobby) and leave the design log as the only artifact. |
 
 ## Optional appendices
 
@@ -167,13 +179,13 @@ One method everywhere: requirements, estimates, API and data, design, deep dive,
 | Loop | Thin bias |
 |---|---|
 | Google | More time on the estimate, the data model, and naming the consistency guarantee. Non-goals are expected to be explicit. |
-| Meta | The prompt stays ambiguous longer. Fan-out, what the user waits for, and what can be async show up early. |
+| Meta | The problem stays ambiguous longer. Fan-out, what the user waits for, and what can be async show up early. |
 | Amazon | Customer-visible behavior and operational ownership before boxes. "What pages you" is a normal deep dive, not a personality test bolted on the end. |
 | Apple | Privacy and data minimization are a first-class constraint: what you refuse to store, and what can stay on device. Scale still has to be answered. |
 | Netflix | Expect a region or a dependency to die in the conversation, and expect cost of a heavy media path to be spoken, not appended. |
 | Microsoft | Tenancy, identity boundaries, and an enterprise isolation story sit beside scale. Do not switch into a compliance lecture. |
 
-If the prompt bank adds a company card later, that card wins over this table.
+If the problem bank adds a company card later, that card wins over this table.
 
 ### Classic papers appendix
 
@@ -190,20 +202,20 @@ The course lives in the GitHub repo as text and diagrams. Work one numbered day 
 Suggested layout, which the repo can mirror:
 
 - `days/NN-title.md` for the lesson or mock page
-- `prompts/` for the live prompt bank
+- `prompts/` for the problem bank (the folder name stays `prompts/`)
 - `design-log/` for your entries
 - `appendices/` for the quirk note and the paper note
 
-On a lesson day, attempt the prompt before you read the design, then read, then redraw the six diagram types from Week 1 (context, whiteboard, read path, write path, data model, failure or scale overlay). On a mock day, use a timer, a blank page, and no notes from that week. Read the reference only after you stop.
+On a lesson day, attempt the problem before you read the design, then read, then redraw the six diagram types from Week 1 (context, whiteboard, read path, write path, data model, failure or scale overlay). On a mock day, use a timer, a blank page, and no notes from that week. Read the reference only after you stop.
 
-Design-log entry, every mock and any day you want to keep: prompt, assumptions, a small rubric score, one gap. That log is the artifact.
+Design-log entry, every mock and any day you want to keep: problem, assumptions, a small rubric score, one gap. That log is the artifact.
 
-Mock rule: the prompt is never that week's lesson topic. Day 7 is the exception that installs the rubric: the week's lessons are the method, and the closed-book prompt is the pastebin you already touched. Later mocks are different products on purpose.
+Mock rule: the problem is never that week's lesson topic. Day 7 is the exception that installs the rubric: the week's lessons are the method, and the closed-book problem is the pastebin you already touched. Later mocks are different products on purpose.
 
-| Day | Prompt | Not this week |
+| Day | Problem | Not this week |
 |---|---|---|
 | 7 | Pastebin, closed book | Method lessons only; this mock installs the rubric |
-| 28 | Image upload and thumbnails | Not the pastebin spine. Must use cache, durable storage, and a queue |
+| 28 | Image upload and thumbnails | Not the pastebin spine. Closed book. Score behavior, not a required box list |
 | 49 | Warehouse inventory reservation | Not schema change, indexes, or retention. Seats are day 61 |
 | 63 | Job scheduler | Not search, video, nearby, tickets, or metrics ingest |
 | 77 | Email inbox | Not graph, stories, crawler, order book, flags, or audit |
@@ -212,6 +224,6 @@ Mock rule: the prompt is never that week's lesson topic. Day 7 is the exception 
 | 88 | Event intake | Write-heavy. Not a replay of the metrics days |
 | 90 | Kit realtime card, else multiplayer lobby | No lesson. Realtime |
 
-Titles in this list are the initial assignment. If Arunveer or the team updates a page under `prompts/`, the updated prompt wins. Pull before a mock. Do not keep a private copy as the source of truth.
+Titles in this list are the initial assignment. If a page under `prompts/` is updated, the updated problem wins. Pull before a mock. Do not keep a private copy as the source of truth.
 
-The kit (script, stencils, trade-off card, follow-up bank, grader prompts, extra prompt cards) is a separate product sold on its own. Day 85 shows how it attaches. Days 1–84 and the debriefs do not require it. Day 90 is written to be run from the kit; until you own it, use the fallback lobby prompt and the same timer and rubric. Do not block the other 89 days on the kit.
+The kit (script, stencils, trade-off card, follow-up bank, grader notes, extra problem cards) is a separate product sold on its own. Day 85 shows how it attaches. Days 1–84 and the debriefs do not require it. Day 90 is written to be run from the kit; until you own it, use the fallback lobby problem and the same timer and rubric. Do not block the other 89 days on the kit.

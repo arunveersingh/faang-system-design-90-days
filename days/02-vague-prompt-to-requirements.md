@@ -1,7 +1,13 @@
 <!-- day-nav -->
 [← Day 1 — What the interviewer is grading](01-what-the-interview-is-grading.md) · [Day 3 — Capacity math out loud →](03-capacity-math-out-loud.md)
 
-# Day 2 — Vague prompt to requirements
+# Day 2 — Vague problem to requirements
+
+**Do now**
+
+1. Set a timer.
+2. Attempt the problem. Stop at the attempt line. Do not scroll.
+3. Then read.
 
 ## Time box
 
@@ -127,6 +133,8 @@ Expired and missing must be indistinguishable to a reader. That single rule forb
 A hot link is still a point read of one id. Do not "solve" popularity in the requirements. Note it as a question for later: popularity changes load shape, not the contract.
 
 ## Diagrams
+
+![Whiteboard: a one-line problem becomes behavior, constraints, and non-goals, not servers first](assets/day-02-problem-to-requirements.svg)
 
 ### Context and trust
 
