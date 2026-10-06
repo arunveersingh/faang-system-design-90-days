@@ -83,6 +83,11 @@ The sweeper cannot ask one index "everything expiring in the next minute" and tr
 
 You also give up any future "recent pastes" page. That page wants a range on `created_at`. You refused the page. Say that the refusal is now structural, not only a product preference. If someone adds the page later, they add a different store fed by the outbox. They do not range-scan four primaries on the create path.
 
+**Sweeper fan-out cost at four shards.** Average expiries ~116/s, peak inherits create peak ~350/s. Spread across four `expires_at` indexes that is ~29/s average and ~88/s peak per shard — trivial as QPS. The cost is operational: four connections, four lag metrics, four ways to forget a shard in a cron. The bug is a missing shard in the fan-out list, not CPU. Checklist the shard map in the sweeper the same way the app loads it.
+
+**Why the object key stays `pastes/{id}`.** The bucket is already a distributed hash of bytes. Re-partitioning objects onto "the same four primaries" couples blob placement to row placement and makes a reshard copy objects as well as rows. The row carries the guarantee; the object key only needs to be derivable from the id. Keep them decoupled.
+
+
 ### What range would have kept, and what it costs
 
 Range on `created_at`: the sweeper's cousin, "recent," is local, and **every create hits the shard that owns now**. At 10× that shard takes **3,500 commits/s** by itself. 3,500 is over 2,000. You built the hot database you were here to escape, and you built it on a clock. A quiet Tuesday shard and a Monday shard that is on fire is the shape. Rebalancing a range means splitting the hot edge, which is the one split you cannot do calmly.
@@ -91,11 +96,21 @@ Range on `expires_at` is worse for this allow-list. The default TTL is 30 days, 
 
 Range earns its keep when the dominant query is the range and the writes are not all at one end: time-series you read by recent window and you partition by time **knowing** the write head is hot and sizing that head as its own fleet. This pastebin's dominant query is a point read by id. Hash matches the query. Range matches a query you do not serve.
 
+### Capacity math you say before you draw shards
+
+**Today.** Peak commits ~350/s, ceiling ~2,000/s, utilization 350/2,000 = **17.5%**. Headroom for the sweeper, a deploy, and a mild hot key. Drawing four shards at 17.5% utilization is four failover domains and four replica lags for no capacity gain. The staff sentence is "one shard, key chosen, split criteria written."
+
+**10× tripwire.** 3,500/s. Two shards would be 1,750 each — **87.5%** of ceiling before sweeper and skew. That is why the plan is **four** at ~875/s (**44%**), not two. The metadata restore argument: 1.35 TB / 4 ≈ **340 GB** per primary at 10×, versus restoring one 1.35 TB primary under an incident clock. Say both reasons: commit rate and restore size.
+
+**Slot move cost.** 256 slots, add a fifth shard: move ~51 slots ≈ 20% of rows. At 10× metadata ~1.35 TB, that is about **270 GB** to copy, then fence. At a sustained 100 MB/s copy throttle you are on the order of **45 minutes** of copy before the fence, not a config flip. Fixed slots exist so the move is a subset you can price.
+
 ### A dead shard
 
 Four shards, one primary dead. The quarter of ids in its slots **fail** until that shard's replica is promoted. The other three shards do not have those rows. They cannot "pick up the traffic." That sentence is the app-tier sentence from day 8, and it is false for data. Promotion is the same window you already named, about **30 seconds**, and it applies to a quarter of the keyspace, not to the product. Cache hits and edge hits for that quarter still serve. Misses 503. Creates for that quarter 503. The other three quarters stay up. That partial failure is the point of the split, and it is also the new bug: you must not report "the pastebin is down" when one slot map entry is down, and you must not 404 those ids.
 
 Today, with one shard, a dead primary is the day-13 story unchanged. The slot map has one entry. Building the map now costs you nothing at runtime and saves you a rewrite when 3,500/s arrives.
+
+**Partial failure status.** With four shards, "is the pastebin up?" is the wrong question. About 25% of ids return 503 on create and on cache-miss read while one leader is down; ~75% work. Cache and edge hits for the dead quarter still serve inside their windows. Per-shard success rate on create and on origin miss is the board you want.
 
 ## Diagrams
 
@@ -123,6 +138,19 @@ flowchart TB
   over --> fail[Over the 2000 ceiling]
 ```
 
+Caption the fan-out picture: "GET is one hop; sweep is four." The asymmetry is the design. A picture where both paths fan out is a different product.
+
+Caption the range picture: "Every create hits now." Write **3,500** on the hot edge and **2,000** on the ceiling so the overage is arithmetic, not vibes.
+
+## Failure the user sees under the hash plan
+
+**One shard of four down for 30 seconds.** Creators whose ids hash to that shard get 503; about a quarter of 350 peak ≈ **88 failed creates/s**, ~2,600 in the window. Readers with cache/edge hits for those ids still succeed. Cold readers of those ids get 503, not 404. Creators on the other three shards see nothing. The user-visible story is "some pastes cannot be created or cold-loaded," not "site down."
+
+**Range-on-created_at at 10×, for contrast.** Every creator hits the hot edge at 3,500 commits/s against a 2,000 ceiling. Nearly all creates fail or queue while the quiet shards idle. That is the failure mode you refused by picking hash.
+
+**Sweeper misses a shard.** That shard's expired rows never detach. Objects leak forever for that quarter. The failure is silent disk growth in the bucket. Page on per-shard sweeper lag, not only global.
+
+
 ## Trade-offs
 
 **Choice.** Hash `id` into 256 fixed slots. One shard at 350/s. Four shards when peak commits are about 3,500/s. Sweeper fans out. Each shard has its own replica. A dead shard takes its slots with it until promotion.
@@ -130,6 +158,8 @@ flowchart TB
 **Alternative.** Range on `created_at` or `expires_at`, so a time query is local.
 
 **What you give up.** A single global expiry scan, and any honest "latest pastes" query. You keep create traffic spread out, and you keep GET to one hop without a directory.
+
+**Name the refusal inside each alternative.** Against range on `created_at`: you refuse a hot edge at 3,500 commits/s on one primary. Against range on `expires_at`: you refuse a calendar-shaped write cliff. Against consistent-hashing vocabulary for data nodes: you refuse a ring where a dead node is a miss; here a dead primary is a lost slice until promotion. Against sharding today's 350/s into four: you refuse four failover drills for 17.5% utilization. Against a directory service for shard lookup: you refuse a second system on every GET. Each refusal names the QPS or the operational tax.
 
 **10×.** This is the 10× plan. At 100× peak writes, 35,000/s, four shards at 2,000/s are over (35,000 / 2,000 = 17.5, so you are talking about on the order of **20 shards** if the ceiling held, before skew). The key does not change. If the key were time, 100× would still be one hot edge. That is the argument for choosing the key before the traffic, not for drawing 20 databases today.
 
@@ -139,11 +169,21 @@ flowchart TB
 
 **Hand-waving.** "Consistent hashing, so we can add nodes." That was the cache. These nodes hold the only copy of a slot's rows besides the replica. Say slots, copy, and fence.
 
+**Hand-waving.** "We'll start with four shards so we're ready." Ready for 17.5% utilization and four times the failover drills. The readiness that matters is the key and the slot map, not the process count.
+
+**If they ask what happens to in-flight creates during a slot move.** "The old owner keeps the slot until the fence. In-flight commits on the old primary finish there. After the fence, new creates for those slots go to the new primary. A create that retried across the fence with a new idempotency key could double — which is why day 37's key must hash to a slot that does not move without the paste, and why you fence before you flip the app map."
+
+
+**If they ask why 256 slots.** "Enough that adding a shard moves a subset — about 51 slots, 20% of rows, when going 4 to 5 — and small enough to hold the map in the apps. It is not a membership protocol."
+
+**If they ask how long a reshard takes.** "Copy first, fence second. At 10×, moving 20% of 1.35 TB is about 270 GB; at 100 MB/s that is on the order of 45 minutes before the fence. Until then one writer still owns each slot."
+
 **If they ask which shard the object store uses.** The bucket already places bytes. The object key is still `pastes/{id}`. You do not hash the bucket onto these four primaries. The partition is for the row that makes the guarantee. The bytes stay a blob.
 
 ## Say this in the room
 
-I partition by the paste id and hash it into 256 fixed slots, so a later move copies a subset instead of remapping the world. I do not range on created time, because at ten times traffic every create would hit the shard that owns now, about 3,500 commits a second against a ceiling near 2,000. Hash makes the sweeper visit every shard, which I accept because that scan is not the user's request. Today's peak is about 350 commits a second, so the count is one shard, and four shards is the ten-times drawing. A dead shard hides its own slots until its own replica is promoted, and the other shards do not have the rows.
+I partition by the paste id and hash it into 256 fixed slots, so a later move copies a subset — about 20% of rows when adding a fifth shard — instead of remapping the world. I do not range on created time, because at ten times traffic every create would hit the shard that owns now, about 3,500 commits a second against a ceiling near 2,000. Hash makes the sweeper visit every shard, which I accept because that scan is not the user's request. Today's peak is about 350 commits a second, about 17% of ceiling, so the count is one shard; four shards at about 875 a second each is the ten-times drawing, for both commit headroom and restore size of about 340 GB per primary. A dead shard hides its own slots for about 30 seconds of promotion, roughly a quarter of creates failing with 503, and the other shards do not have the rows.
+
 
 ## Kit artifact
 
