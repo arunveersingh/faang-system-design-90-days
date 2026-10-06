@@ -51,7 +51,7 @@ That is the entire problem. Thirty-five minutes. Blank page. No notes.
 
 ## Rubric
 
-Same six dimensions as day 7. Score 1–4 from your page only. A senior-shaped loop is mostly 3s. A staff-shaped loop is a 4 on the deep dive and a 4 on failure, not more boxes.
+Same six dimensions as day 7. Score 1–4 from your page only. A senior-shaped interview is mostly 3s. A staff-shaped interview is a 4 on the deep dive and a 4 on failure, not more boxes.
 
 ### Requirements
 
@@ -223,6 +223,8 @@ sequenceDiagram
   L-->>B: same 201, reserved unchanged
 ```
 
+Caption it: "Same key returns the same hold; reserved does not climb." The second call is the whole idempotency lesson.
+
 ```mermaid
 flowchart TB
   sweep[Sweeper every 10s]
@@ -232,6 +234,8 @@ flowchart TB
   row --> one[Exactly one of them changes the row]
   one --> scarce[Other path no-ops]
 ```
+
+Caption: "Sweeper vs commit: exactly one changes held → released or committed." False scarcity up to 10 seconds, never double ship.
 
 The second picture is the whole deep dive: false scarcity for up to 10 seconds, or a commit that lost the race and must not also ship the unit.
 
@@ -243,6 +247,60 @@ Replica promoted without a fence: the oversell above. That is the page you care 
 
 A bug that stores sellable as a client-supplied number: one request sets it to a million. The conditional update only adds and subtracts quantities the API checked were positive integers, and `on_hand` changes only on commit or on a restock path you did not build today. Restock is an explicit increment of `on_hand` with its own idempotency key, not a free-form write. If you left restock out, say so. Do not let the reserve request set `on_hand`.
 
+
+### Failure the user sees, per person
+
+**Buyer A gets the last unit; buyer B is concurrent.** B waits on the row lock, then gets 409. B does not see a success that oversells. The failure B sees is "not available," which is correct.
+
+**Buyer retries with the same key after a timeout.** Same reservation id; `reserved` unchanged. Success path for flaky networks.
+
+**Buyer retries with a new key.** Second hold if stock remains; oversell risk only if you also used app-side check-then-set. With conditional update, each key is a separate attempt — two holds of 1 on stock of 1 means the second 409s.
+
+**Abandoned hold.** Units look scarce for up to ~10 seconds after the 10-minute deadline until the sweeper runs. Another buyer may 409 during that window falsely. False scarcity, not oversell.
+
+**Leader down ~30 seconds.** Reserve/commit 503. Holds remain. Buyers see "try again," not "out of stock." After fence and promotion, business continues. Two leaders without a fence: oversell — the failure you page on harder than disk.
+
+**Payment succeeded, commit lost.** Recovery must commit the hold, not let the sweeper release units already charged. Hold duration (10 minutes) must exceed payment budget (tens of seconds). If you release and charged, you refund — you do not pretend the bank and stock share a transaction.
+
+### Trade-offs you should have named
+
+**Conditional update vs app-side read-modify-write.** You refuse the app-side total: two buyers read sellable=1 and both write. The expression `reserved = reserved + qty` under the row lock rechecks.
+
+**Salting the stock counter.** You refuse it: each salt can sell the last unit unless you lock the sum, which returns you to one row.
+
+**Warehouse-wide lock.** You refuse it: one hot product must not stop the rest of the catalog.
+
+**Serializable isolation for this row.** You refuse it as unnecessary theater when a single conditional update under read committed rechecks after wait.
+
+**Queue / waiting room at 44/s.** You refuse it today; day 70 owns flash sales. At 10× with 90% skew (~1,570/s on one row) you shed or queue — still no second writer.
+
+### Probes the interviewer will use, with the answer
+
+**"Two buyers, one item?"** "One conditional update on the leader. The second waits, rechecks `on_hand - reserved`, and gets 409."
+
+**"Retry?"** "Idempotency key in the same commit as the hold. Same key returns the same reservation; reserved is not incremented again."
+
+**"Why not salt?"** "Each half could sell the last unit. Oversell unless I lock the sum — then I am back to one row."
+
+**"Leader down?"** "503 on reserve, not 409. Holds stay. Fence the old leader or two writers oversell."
+
+**"Abandoned cart?"** "Sweeper every 10 seconds releases held rows past expires_at. Up to 10 seconds of false scarcity. State guard prevents releasing out from under a commit."
+
+
+
+### The hot row vs the site, with Little's law
+
+At 44 attempts/s on one product and ~2 ms row-hold time, Little's law says about 44 × 0.002 ≈ **0.09** transactions in flight on that row on average — the row is almost always free. The ceiling of 500/s at 2 ms is when the row is busy the entire second. You are at 9% of that ceiling today on the hot product. At 10× with quarter skew you are at 440/s (~88% of ceiling). At 10× with 90% skew you are at 1,570/s — over — and the answer is shed or queue, not a second writer and not a salt.
+
+**In-flight holds upper bound.** 58 × 600 = **34,800** if every attempt held for the full 10 minutes. Real holds are fewer. Size "how many reservation rows are live" with that ceiling when they ask about memory; do not invent a cache of sellable counts.
+
+**Idempotency retention.** 58/s × 86400 ≈ **5.0 million** keys for 24 hours ≈ **1–2 GB**. Longer than the 10-minute hold on purpose so a retry after expiry returns the original terminal state instead of taking a new hold.
+
+**Why read committed is enough.** Postgres rechecks the `WHERE on_hand - reserved >= :qty` after waiting for the row lock. Serializable would abort concurrent reserves on the same row that could have queued and succeeded sequentially — worse UX for no safety gain on this single counter.
+
+**What staff sounds like.** Naming oversell as the unforgivable failure, false scarcity as the tolerated one, 503 vs 409 as the leader-down distinction, and payment as a neighboring transaction with a crash window you close by hold duration — not by 2PC with the bank.
+
+
 ### What you did not need
 
 A secondary index for the reservation flow. The lookups are the primary key of stock and the primary key of the reservation. The sweeper needs `expires_at` **among held rows on that shard**, which is one index you can justify the way a pastebin justifies an expiry index, because there is a query. It is not the point of the mock. If you spent the 35 minutes on index write amplification, you answered day 47.
@@ -253,7 +311,7 @@ A pastebin read cache. Stock that is cached and then decremented from the cached
 
 ## Say this in the room
 
-Five million attempts a day is about 58 a second, peak about 174, and one hot product at a quarter of peak is about 44 a second on one stock row. I reserve with one conditional update on the leader, in the same commit as the reservation, so a retry with the same key does not take the units twice and a second buyer gets a 409 instead of the last unit. I do not lock the rest of the warehouse, and I do not salt the counter, because each half could sell the last unit. An abandoned hold returns within about 10 seconds of its 10-minute deadline, which can only look like scarcity. If the leader is gone I return 503, and two leaders would oversell, so the old one has to be fenced.
+Five million attempts a day is about 58 a second, peak about 174, and one hot product at a quarter of peak is about 44 a second on one stock row — under a planning ceiling near 500 reservations a second on that row at 2 ms. I reserve with one conditional update on the leader, in the same commit as the reservation and the idempotency key, so a retry with the same key does not take the units twice and a second buyer gets a 409 instead of the last unit. I do not lock the rest of the warehouse, and I do not salt the counter, because each half could sell the last unit. An abandoned hold returns within about 10 seconds of its 10-minute deadline, which can only look like scarcity. If the leader is gone I return 503, not 409, and two leaders would oversell, so the old one has to be fenced. Payment is outside this transaction: reserve, pay, commit, with the hold longer than the payment budget so a sweeper cannot release units I already charged for.
 
 ### After you read this
 
