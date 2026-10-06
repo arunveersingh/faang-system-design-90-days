@@ -123,6 +123,8 @@ If the tombstone still exists when C returns, repair copies the tombstone, not t
 
 **What you give up.** Undelete. A simple mental model where delete means vacuum. You keep origin correctness after 204, and you keep a downed leaderless node from teaching the cluster the old row. You accept that an hour-later resurrection is a fill or a repair bug, not "caches are hard."
 
+**Name the refusal inside each alternative.** See staff depth above for the named refusals tied to this day's alternatives.
+
 **10×.** Cache tombstones: about **70,000** keys if deletes scale (7,000 × 10). Still nothing. A 7-day leaderless tombstone at 10× delete rate is 1,160/s × 7 days × 86,400 × ~200 bytes ≈ **1.4 × 10^11 bytes**, about **140 GB** of tombstones. That is large enough to tempt someone to cut retention to a day. Cutting it below the rejoin window brings the rows back at 10× the rate. The inequality is the design. The disk is the pressure against it.
 
 ## Talking points
@@ -136,6 +138,55 @@ If the tombstone still exists when C returns, repair copies the tombstone, not t
 ## Say this in the room
 
 On Postgres the delete is in the WAL, so a replica does not resurrect the row after it applies the log, and lag before that is a stale read I already refused for GET. The origin cache is different: I write a tombstone for 60 seconds, about 7,000 keys, so an in-flight fill cannot put the row back, and a bare delete of the cache key is how it returns. If the store were leaderless, the tombstone would have to outlive the rejoin window, 7 days against 3 days, or repair copies the old row forward. I will not use one retention for the paste, the idempotency key, the inbox, the cache, and that tombstone. An hour-later comeback is a fill or a repair bug, not the edge's 60 seconds.
+
+### Staff depth: retentions do not share
+
+Postgres hard delete + WAL: replica apply removes the row; lag before apply is a stale read you already refused for interactive GET. Cache tombstone ~60s closes in-flight fills (~7,000 keys order of magnitude). Leaderless store (if forced): tombstone must outlive rejoin (7 days vs 3-day example) or repair resurrects.
+
+**Do not unify TTLs.** Paste 30 days, idempotency 25 hours, inbox 8 days, cache tombstone 60s, leaderless tombstone days. One "delete retention" number is how an inbox expires before replay or a cache tombstone vanishes while a fill is in flight.
+
+**Hour-later resurrection.** Not the edge's 60s — that is expected. An hour later is a fill bug or repair bug. Page differently.
+
+**Soft delete forever.** Undo is nice; unique id reuse and table growth are not free. You refused undelete as a product; hard delete matches.
+
+
+### Staff depth: five clocks, five retentions
+
+| Holder | Retention | Job |
+|---|---|---|
+| Postgres row | gone (WAL has the delete) | Replica apply removes it |
+| Origin cache tombstone | ~60s | Beat in-flight fills |
+| Edge body | ≤60s max-age | Bound stranger reads |
+| Inbox | 8 days | Survive replay |
+| Idempotency | 25 hours | Survive client retry |
+| Leaderless tombstone (if any) | > rejoin window | Stop repair resurrection |
+
+Sharing one number across this table is how an inbox expires before a human replay or a cache tombstone vanishes while a fill is mid-flight. An hour-later resurrection is a fill/repair bug, not "caches are hard." Soft-delete forever buys undelete you refused and vacuum debt you do not want.
+
+**Cache tombstone count.** Deletes ~116/s average × 60s ≈ **7,000** keys — noise next to metadata. Bare `DEL` of the cache key without a tombstone is how the row returns.
+
+**Leaderless 7 vs 3.** Tombstone must outlive the longest partition you will heal. Shorter tombstones + long rejoins = zombies.
+
+
+
+### Failure the user sees
+
+**Bare cache DEL.** Delete returns 204; late fill restores the row; origin serves a "deleted" paste until TTL. Looks like delete failed randomly.
+
+**Shared 30-day retention for inbox and paste.** Human replays a purge on day 20; inbox gone; job runs again — fine for purge. Same retention for an email effect: second email on day 20.
+
+**Short leaderless tombstone.** Node rejoins after tombstone GC; repair copies the old row forward; delete undoes itself hours later.
+
+### Probes
+
+**"How long is the cache tombstone?"** "About 60 seconds — long enough to cover in-flight fills, short enough that deleted ids do not own the cache forever. About 7,000 keys at average delete rate."
+
+**"Why not one TTL?"** "Paste, idempotency, inbox, cache, and leaderless repair are different threats. One number cannot cover them."
+
+
+### Talk track denser
+
+Hard delete + WAL on Postgres; cache tombstone ~60s for in-flight fills; edge ≤60s; inbox 8d; idempotency 25h; leaderless tombstone longer than rejoin if that engine appears. Never one shared TTL. Hour-later resurrection is fill/repair, not the edge window.
 
 ## Kit artifact
 
