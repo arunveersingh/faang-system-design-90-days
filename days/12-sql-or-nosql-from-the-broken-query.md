@@ -99,6 +99,18 @@ You give up horizontal write scaling as a default. One primary is the write bott
 
 You do not run a second metadata database "for the reads." The cache is the read scaling tool. Two metadata stores means two sources of truth and the tombstone problem doubled.
 
+### The sweeper and the index, in numbers
+
+**The index is small next to the table.** One `expires_at` entry is a timestamp, a row pointer, and per-entry overhead, call it about 30 bytes once page fill is counted. At 450 million rows that is on the order of 15 GB. It sits inside the 135 GB metadata budget, and its hot end, the next few hours of expiries, is a tiny slice that stays in memory. The sweeper only ever touches the left edge of that index. That is why a range on a B-tree is cheap here and a full scan is not.
+
+**The sweeper inherits the create peak.** Expiry is create time plus TTL. A peak hour of creates becomes a peak hour of expiries one TTL later. So the sweeper's average is about 116 deletes a second and its peak is about 350, the same shape as writes, shifted. A batch of 1,000 every few seconds keeps up at either. Size the batch and the sleep from the peak, or the sweeper falls behind every evening and catches up overnight, and "catches up" means a burst of deletes on the primary at the hour you can least afford it.
+
+**Deletes are writes in Postgres.** Each delete leaves a dead tuple that vacuum must reclaim. At 116 a second that is about 10 million dead rows a day. Autovacuum keeps up at this rate if you let it; a table that stops vacuuming bloats, the index grows, and the sweeper's own range scan slows. Say it: "I'd watch dead tuples and vacuum lag on this table. Expiry is a steady delete stream, and in Postgres that is a vacuum workload."
+
+**The SQL trick you consider and refuse today.** Partition the table by expiry day, and expiry becomes dropping yesterday's partition: no per-row deletes, no bloat. It costs the one constraint you cannot give up. Postgres enforces uniqueness across partitions only if the partition key is part of the unique key, and `id` alone would no longer be enforced globally, so "ids never reused" becomes your application's problem. At 116 deletes a second, vacuum is cheaper than that risk. At 10× the trade might flip. Naming it shows you know the SQL-native answer to the broken query exists and why you are not taking it yet.
+
+What staff sounds like here is defending the boring choice with the same rigor someone else would use to sell a migration. The interviewer who asks "wouldn't a key-value store be better?" is often not asking for a migration. They are checking whether you can list your queries, price each one in two stores, and refuse with a reason. "The access pattern is a point key and a time range, and the range is the one the replacement cannot serve" is the staff answer in one breath.
+
 ## Diagrams
 
 ### The only queries
@@ -128,6 +140,18 @@ flowchart TB
 
 The right branch is real work. Take it when the left branch's primary cannot take the write rate. Not when the logo feels dated.
 
+Caption it: "Left branch is an index we already maintain. Right branch is a second write on every create." The diamond is the decision the interviewer is grading. Label the right-hand arrow with the failure it introduces, half-written dual write, so the cost is on the drawing and not only in your voice.
+
+## Failure the user sees, per store
+
+**On Postgres, the sweeper falls behind.** Nobody reads an expired paste: the read checks `expires_at`. Disk fills more slowly than it should and vacuum has more to do. The user sees nothing until disk pressure makes creates fail. Page on sweeper lag in hours and on days-to-full.
+
+**On Postgres, vacuum stops.** Bloat grows, the `expires_at` index grows, the sweeper's range scan slows, and eventually point lookups on the miss path slow too. Users see slower reads on cache misses long before anything fails. This is the slow failure of the choice you made; own it.
+
+**On the key-value alternative, the bucket write fails after the row write.** The paste is readable and never swept. Users see nothing. The disk sees a paste that lives forever, and a 1-hour paste that is still on disk a year later is a privacy failure, not only a cost. That is the failure you would be buying with the migration, and nobody notices it until an audit.
+
+**On the key-value alternative with native TTL.** The store deletes the row on its own schedule, and the body file on the NVMe is not part of that. Something has to notice the row disappearing and unlink the body. That something is a change stream and a consumer: the second structure again, by another name.
+
 ## Trade-offs
 
 **Choice.** Postgres for metadata. Point key plus an `expires_at` index. Bodies not in the row. Cache in front for reads. No second metadata store.
@@ -137,6 +161,8 @@ The right branch is real work. Take it when the left branch's primary cannot tak
 **What you give up by refusing the alternative.** The ability to say "we can add nodes" as a write-scaling story. You also give up a slightly simpler mental model on the read path (one key, one value, no planner). You keep a sweeper that is a query, not an application-maintained bucket, and you keep a single commit for "row exists and will be found by expiry."
 
 **What you would give up by accepting the alternative.** The range query, unless you build and fail the dual write yourself. That is a worse operational problem than a 135 GB index at a few hundred writes a second.
+
+**Name the refusal inside each alternative.** Against the pure key-value store: you refuse to give up the range query and buy a dual write at 350 writes a second. Against the hybrid (key-value for gets, SQL for the sweeper): you refuse two writes on every create when the cache already took the get load. Against time-partitioning the SQL table: you refuse to lose database-enforced id uniqueness to save vacuum work that keeps up today. Each refusal names the guarantee it would cost.
 
 **10× break.** ~3,500 commits/s peak and ~4.5 billion live rows. The index still answers the same query; the primary may not keep up with the commits. The fix you reach for then is **partition the same table by id** (or by a hash of id), not "switch to NoSQL" as a sentence. A partition is still SQL if the range query becomes "each partition sweeps its own expiry index," or you add the time bucket at that moment because each partition's local index is the new dual-write problem. You do not pre-build that today. You name the rate that would make you.
 
@@ -154,7 +180,15 @@ The right branch is real work. Take it when the left branch's primary cannot tak
 
 **If they demand search.** "That's a different product. An inverted index over 4.5 TB of text, with retention and the same 404 rule. I am not folding it into this row, and I am not switching the metadata store to sneak it in."
 
+**If they say: "Plenty of key-value stores have native TTL."** "They do, and the row would disappear on its own. Two problems. Those deletions run in the background on the store's schedule, so the read still has to check `expires_at`, same as today. And the body lives outside that store; when the row vanishes, something has to unlink the file. That's a change stream and a consumer. I've replaced an index with a pipeline."
+
+**If they ask what the sweeper costs the primary.** "About 116 deletes a second on average and about 350 at peak, because expiries follow the create curve shifted by the TTL. Batches of a thousand with a sleep. In Postgres every delete is a dead tuple, so the real cost is vacuum, about ten million rows a day. I'd watch vacuum lag on that table."
+
 **If they ask about unique ids and compare-and-set.** The unique primary key is what makes a remint correct. A key-value put that does not fail on an existing key will reuse an id, which the contract forbids. Whatever store you pick has to support "insert if absent." Postgres does. Do not assume a document put does, unless you checked.
+
+## Say this in the room
+
+The calls the contract makes are a point get by id, an insert that must fail if the id exists, and a sweeper range on `expires_at`. Postgres does all three with the primary key and one index, roughly 15 GB at 450 million rows, inside the 135 GB I already budgeted. A key-value store does the first two and full-scans 450 million rows for the third, or I write an expiry bucket on every create and own a dual write that, when it half-fails, leaves a paste on disk forever. Native TTL moves the problem: the body isn't in that store, so I'd need a change stream to unlink it. The sweeper follows the create curve shifted by the TTL: 116 a second average, about 350 at peak, and in Postgres that's a vacuum workload I'd watch. I'd leave this primary when commits outrun group commit, around 10×, and the next step there is partitioning by id, which is still SQL. The body isn't in the row because it's a large value, not because SQL is the wrong category.
 
 ## Kit artifact
 
