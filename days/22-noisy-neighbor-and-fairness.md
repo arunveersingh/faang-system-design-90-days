@@ -69,11 +69,25 @@ Singleflight, per process, collapses a hot key's misses to about one fill at a t
 
 It is not enough when many keys miss at once on purpose: a client that cache-busts, or a neighbor that requests a wide set of cold ids so singleflight never triggers (every id is unique). Per-IP origin GET limit (50/s) bounds one address. Many addresses, one coordinated crawl of cold ids, is the distributed case again. The pool that protects the primary is a **global cap on concurrent cache-miss fills**, separate from singleflight.
 
-Planning cap: **200 in-flight primary reads** cluster-wide, tracked coarsely (a counter in one place, or a per-app share of about 70 so you do not add a hot counter... 3 × 70 = 210). Past the cap, further misses **503** instead of querying the primary. Cache hits, including the hot key, do not take a slot. CDN hits do not take a slot. You are shedding cold origin misses, which are the neighbor's tool, and keeping the hit path.
+Planning cap: **200 in-flight primary reads** cluster-wide, tracked coarsely as a per-app share so you do not add a hot shared counter to the miss path: 50 per app gives 200 with four up and 150 with one down. If you want about 200 to survive a drain, use about 70 each and accept 280 when all four are up. Past the cap, further misses **503** instead of querying the primary. Cache hits, including the hot key, do not take a slot. CDN hits do not take a slot. You are shedding cold origin misses, which are the neighbor's tool, and keeping the hit path.
 
 Why 200: it is far under 15,000, and it is far above the happy-column primary QPS from day 21 (87/s, and a read takes a millisecond, so in-flight on a healthy day is a handful). The cap is idle until something is wrong. When it is wrong, the primary stays up and serves the writes and the deletes, which share the same database and must not wait behind a crawl.
 
 Do not use this cap to "smooth" a normal miss. If honest traffic trips it, you sized it below the zero-hit plan. The zero-hit plan's answer is shed, though, so tripping it when the cache is empty is **correct**. The whole site cold is not a neighbor; it is an incident; 503s on misses and hits still served from the edge is the same priority as day 19.
+
+### Why a concurrency cap and not a rate cap
+
+A cap on **in-flight** fills behaves differently from a cap on fills per second, and the difference is the point. By Little's law, throughput through the cap is slots divided by latency.
+
+- **Healthy primary, 2 ms reads:** 200 / 0.002 = 100,000 fills a second permitted. The cap never binds. You do not want it to.
+- **Primary saturating:** latency climbs as it approaches its ceiling. At about **13 ms**, 200 slots pass exactly 15,000 a second, the ceiling. Past that, the cap binds and sheds. The cap found the ceiling on its own, by watching latency, without anyone measuring 15,000.
+- **At the 20 ms timeout from day 20:** 200 / 0.02 = 10,000 a second is the most the cap can ever pass. The timeout and the cap together bound the primary's miss load below its ceiling.
+
+A rate cap of, say, 10,000 a second would be too tight on a fast day and too loose on a slow one. A concurrency cap tightens exactly when the dependency slows. Say that sentence; it is why the number is 200 slots and not 200 per second.
+
+**What the crawl costs honest readers.** A thousand IPs, each at the 50-a-second origin GET limit, is 50,000 cold misses a second. The cap passes on the order of 10,000 once the primary slows. Honest cold readers are about 87 a second of that at the day 21 assumptions, mixed in with the crawl, so they get through roughly one time in five. Hot links and edge hits are untouched. That is the honest cost of having no tenant to tell them apart. A small refinement narrows it: a **per-IP share of the fill cap**, two or three slots per address, so one address can never hold more than about 1% of the slots. It does not stop a distributed crawl. It does stop one busy address from taking the cap.
+
+What staff sounds like here is naming who loses inside the cap, not only that the primary survives. "The primary stays up, commits keep flowing, and honest cold readers get through about one time in five while the crawl lasts" is the sentence the interviewer is waiting for. "We have a cap" without the loser is half an answer.
 
 ### One id must not own a cache node
 
@@ -116,6 +130,8 @@ flowchart TB
   worker[Reaper] -->|own pool| bucket[Bucket connections]
 ```
 
+Caption it: "IP capped on spend. Id capped on fills, never on audience. Worker on its own pool." Point at the uncapped CDN edge last. It is the arrow the interviewer is testing, and leaving it uncapped is the decision.
+
 ### What stays up
 
 ```mermaid
@@ -127,6 +143,20 @@ flowchart LR
   writes[Commits] --> ok2[Primary not behind the crawl]
 ```
 
+Caption: "The crawl gets 503s. The hot link and the commits do not wait." Write "200 slots, binds near 13 ms" beside the fill cap so the cap reads as a mechanism and not a hope.
+
+## Failure the user sees, with a neighbor in the house
+
+**A distributed cold-id crawl.** Honest readers of hot links see nothing. Honest readers of cold pastes see 503 on most attempts while the crawl lasts, about four in five at the numbers above. Creates and deletes keep committing, because the primary's CPU is not spent on the crawl. The page is the fill cap sitting at its limit; the 503s go to whoever arrived when no slot was free.
+
+**One address hammering cold ids.** Its per-IP origin limit and its fill share hold it at a few slots. Nobody else notices.
+
+**A reap backlog after a bucket incident.** The cleanup pool is full and outbox age climbs. Creates and cold reads keep their own bucket connections and are unaffected. Without the split, the backlog would check out every connection and creators would see 503 for a job nobody is waiting on.
+
+**One cache node hot on one key.** Gets for that key slow; everything else on that node slows with it, about a quarter of the keyspace. Users see slower reads on those ids. If the local one-entry stash is in place, the node goes quiet within one TTL.
+
+**The whole site cold.** Not a neighbor. The fill cap sheds most misses and the site looks like an outage for cold content. Treat it as day 19's incident, not a fairness problem.
+
 ## Trade-offs
 
 **Choice.** Keep per-IP create and origin-GET limits. Add a cluster cap on concurrent primary fills. Separate bucket connection pools for GET, PUT, and cleanup. Do not cap CDN traffic per id. A one-entry local stash only if a single cache node is actually hot on one metadata key.
@@ -136,6 +166,8 @@ flowchart LR
 **What you give up.** A cold-id crawl gets 503s, and so do honest readers of rarely accessed pastes **while** the crawl is happening, if they need the primary. You are punishing cold legitimate reads to save the primary. That is the trade. The alternative is the primary dies and hot path commits fail too, which punishes everyone. You also give up a single pool's simplicity. Three pools can be exhausted independently, which means three graphs to look at. Worth it.
 
 **Why not equal QPS per id.** It confuses abuse with popularity. The expensive shared resource is the origin miss, not the existence of readers.
+
+**Name the refusal inside each alternative.** Against equal QPS per id: you refuse to 503 the viral paste that is the product. Against one shared pool: you refuse to let a cleanup backlog become a create outage. Against accounts for quotas: you refuse a user system to get a better fairness key. Against a rate cap on fills: you refuse a number that is wrong on fast days and slow days alike, when a concurrency cap tracks the primary's latency. Each refusal names the person it would hurt.
 
 **10× break.** The fill cap of ~200 in flight still protects a primary at ~3,500 commits/s only if those commits have CPU left. A cap on reads does not enlarge write capacity. At 10× the noisy neighbor can be **honest traffic**: the zero-hit column is ~174,000 origin reads, and the fill cap will shed most of them. That is correct and it will look like an outage. The fairness tool is not a substitute for the CDN assumption holding. If every id is "the neighbor," you do not have a neighbor. You have under-capacity. Say that, or you will spend the incident tuning quotas.
 
@@ -151,7 +183,15 @@ flowchart LR
 
 **If they ask about the hot key on one cache node again.** "Virtual nodes balance ids, not QPS. One id stays on one node. The audience should be on the CDN. If metadata gets for that one id are actually the CPU problem, I stash that one entry on the app for the TTL window. I don't salt the key."
 
+**If they ask why 200 in flight and not a QPS limit.** "Slots over latency. At 2 ms, 200 slots allow 100,000 a second, so it never binds on a healthy day. As the primary slows toward 13 ms, it passes exactly the 15,000 ceiling. With my 20 ms timeout, it can never pass more than 10,000. It tightens on its own."
+
+**If they ask what honest users see during a crawl.** "Hot links, nothing. Cold links, about four in five attempts get 503 while the crawl lasts, because I can't tell them from the crawler without a tenant. Commits keep flowing. A per-IP share of the slots stops one address from taking the cap; it doesn't stop a thousand."
+
 **If they ask what you page on.** Primary in-flight fills sitting on the cap. One cache node hot while the others are idle, for longer than a single-key refresh. Outbox age, which tells you the cleanup pool is losing. A per-IP 429 is not a page by itself.
+
+## Say this in the room
+
+No accounts, so my neighbors are a source IP, a paste id, and a background worker. The IP is capped before the PUT and on origin GETs. The id is never capped at the CDN; it's capped on concurrent primary fills, 200 slots cluster-wide as per-app shares. That's a concurrency cap on purpose: at 2 ms it never binds, near 13 ms it passes exactly the 15,000 ceiling, and with my 20 ms timeout it can't pass more than 10,000. A distributed cold crawl gets 503s, and so do honest cold readers, about four in five while it lasts; hot links and commits don't notice. A per-IP slot share stops one address from taking the cap. Bucket connections are split for GET, PUT, and cleanup, so a reap backlog can't starve creates. If one cache node is hot on one key, I stash that one entry on the app for the TTL; I don't salt. Fair isn't equal QPS. Fair is one neighbor not spending the budget the commit path needs.
 
 ## Kit artifact
 
