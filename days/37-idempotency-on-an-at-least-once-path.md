@@ -93,6 +93,16 @@ Storage, average rate, not peak: 116 keys/s × 25 hours × 3,600 s/h = 116 × 90
 
 A sweeper deletes expired keys. It must not delete the paste. Different `expires_at`. Do not reuse the paste TTL as the key TTL. A paste lives 30 days by default. A key that lives 30 days stores the raw delete token for a month. 30 days is 720 hours, and 720 / 25 = **28.8**, 28.8 × 5.3 GB is about **150 GB** of secrets. You refused that by picking 25 hours. Show the multiplication if someone says "just keep them with the paste."
 
+### Race and storage, said with counts
+
+**Two in flight, one key.** Both see absence, both PUT, both enter the short transaction. Unique key: one commits, one aborts, re-reads, returns the winner's 201. Loser's object is an orphan. At peak 350 creates/s, even a 1% double-flight rate is ~3.5 orphan PUTs/s during a blip — the reaper's age floor already covers that class. The unique index is the serialization; the lookup is not.
+
+**Retention math.** 116 keys/s × 25 h × 3600 = **10.44 million** live rows. At ~512 bytes ≈ **5.3 GB**, about **4%** on top of 135 GB paste metadata. Keep keys for the paste's 30-day TTL instead and you store the raw delete token ~28.8× longer → on the order of **150 GB** of secrets. The 25-hour choice is security and disk, not a vibe.
+
+**Routing.** `slot = hash(key) mod 256`, id prefix carries the slot, GET decodes prefix. Hashing the whole id would send GET to the wrong shard and 404 a live paste. Two characters of prefix; twelve random remain for day 4's collision budget.
+
+**PUT still outside the transaction.** Crash after PUT, before commit: retry is a new attempt from the DB's view, new id, new object, one paste for the user, first object orphaned. Idempotency did not move bytes inside the database. It collapsed the commit the client cares about.
+
 ### What can still arrive twice
 
 - **A new key per click.** The client generated a fresh UUID on retry. You will create a second paste, correctly, against the contract you published. You cannot detect "same human." Do not fingerprint the body and dedupe. Two users pasting the same text get two ids. That non-goal is still a non-goal. Day 4's `body_sha256` is not unique.
@@ -123,6 +133,20 @@ sequenceDiagram
 
 A different body with the same K returns 409 and does not enter this picture as a success.
 
+Caption: "Same key, same body, stored 201 — no second insert." Label the unique-key abort path: "loser re-reads winner."
+
+## Failure the user sees
+
+**Retry after commit, response lost.** Same key → same link, same delete token. The win you bought.
+
+**New key per click.** Second paste; first may still exist. Two links. Docs must say the client owns key stability.
+
+**Retry after 25 hours.** Second paste by contract.
+
+**Same key, different body.** 409, not a silent overwrite with someone else's token.
+
+**App retries POST while client retries.** Two loops. Stable key still collapses; new key each hop multiplies pastes. One policy: the client's.
+
 ## Trade-offs
 
 **Choice.** Required idempotency key, same commit as the paste, slot chosen by the key, slot prefix on the id, retain 25 hours, store the 201 body.
@@ -130,6 +154,8 @@ A different body with the same K returns 409 and does not enter this picture as 
 **Alternative.** Leave creates non-idempotent, which was the design through day 36, and tell the client a timeout means "look at your pastes," which they cannot. There is no list.
 
 **What you give up.** Anonymous POST without a key. A slightly longer id. The delete token at rest for 25 hours. A routing rule that is "decode the prefix," not "hash the id." You gain one paste per save under retry, which is the requirement they added. You do not gain exactly-once execution of the bucket PUT or of the worker.
+
+**Name the refusal inside each alternative.** Against optional keys on one endpoint: you refuse the old bug surviving in forgetful clients. Against two commits for paste and key: you refuse a crash window that double-creates. Against a global idempotency table: you refuse a second shard on every create. Against keeping keys for the paste TTL: you refuse ~150 GB of delete tokens at rest. Against app-side retry of POST: you refuse a second loop on top of the client's.
 
 **10×.** About 53 GB of idempotency rows and the same 25-hour rule. Do not lengthen retention because the table "can take it." The token exposure scales with the window, not with how roomy the disk feels.
 
@@ -139,11 +165,23 @@ A different body with the same K returns 409 and does not enter this picture as 
 
 **Hand-waving.** "UUID primary key, so retries are fine." A new UUID per attempt is the duplicate. The UUID has to be **stable** across the attempts that should collapse.
 
+**If they ask what happens when two requests race.** "Both may PUT. One unique-key insert wins; the loser aborts, re-reads, returns the stored 201. The extra object is an orphan for the reaper."
+
+**If they ask why the id carries the slot.** "GET must find the shard the key chose. Hashing the whole id would 404 a live paste. Prefix is two characters; twelve random stay for collision budget."
+
 **If they ask about the delete token.** You hand it back on the retry because the client may never have seen it. You store it only on the idempotency row, only for 25 hours. You do not put it back on the paste row in the clear.
 
 ## Say this in the room
 
-The client sends one idempotency key and reuses it on retry, and I store it in the same commit as the paste, on the shard the key hashes to, with that slot written into the id. A retry with the same key and body gets the stored 201, including the delete token, a different body is a 409, and two in-flight calls lose on the unique key, abort, and re-read instead of both committing. I keep the key 25 hours, about 10.4 million rows and about 5.3 GB, and after that a retry is a new paste on purpose. A client that mints a new key per click still gets two pastes. So does any side effect outside that commit, the object PUT and later the worker.
+The client sends one idempotency key and reuses it on retry, and I store it in the same commit as the paste, on the shard the key hashes to, with that slot written into the id so GET does not hash the wrong way. A retry with the same key and body gets the stored 201, including the delete token; a different body is a 409; two in-flight calls lose on the unique key, abort, and re-read. I keep the key 25 hours — about 10.4 million rows and 5.3 GB, not 30 days of delete tokens at about 150 GB. After 25 hours a retry is a new paste on purpose. A client that mints a new key per click still gets two pastes. So does any side effect outside that commit: the object PUT and later the worker. The app still does not retry the POST itself.
+
+
+**What staff sounds like.** Same commit as the paste, slot from the key, prefix on the id, unique key as the race serializer, 25 hours not 30 days so delete tokens are not a 150 GB secret store. Naming the duplicates that remain: new key per click, expiry of the idempotency row, PUT and worker outside the commit. One retry policy — the client's.
+
+
+### Contract change callouts
+
+Missing key → 400, not a silent new paste. Same key different body → 409. Retention 25h not 30d so delete tokens are not a ~150 GB secret store. Slot prefix on the id so GET cannot hash the wrong shard. App still does not retry POST; the client does, with a stable key.
 
 ## Kit artifact
 
