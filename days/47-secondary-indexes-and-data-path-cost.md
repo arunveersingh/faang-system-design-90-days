@@ -120,6 +120,8 @@ The index arrow is the one you refuse for syntax. The replica arrow is real and 
 
 **What you give up.** Ad-hoc queries by syntax. A bargain replica that cannot be promoted. You keep create path small and failover real. You also give up the right to say "write amp" when you mean "we pay for another disk."
 
+**Name the refusal inside each alternative.** See staff depth above for the named refusals tied to this day's alternatives.
+
 **10×.** WAL about **28 Mbit/s** peak. Metadata about **1.35 TB** per copy. Bodies about **45 TB** and **93 Mbit/s** of cross-region replication if you still copy them. User egress about **14 Gbit/s**. The index you refused is still not the dominant term. At 10× a useless index is still cheap in bytes and still a hot page if one syntax dominates. The body copy is the term that starts to look like a real line item. The user egress is the term that already did, on day 15, which is why the CDN exists.
 
 ## Talking points
@@ -133,6 +135,59 @@ The index arrow is the one you refuse for syntax. The replica arrow is real and 
 ## Say this in the room
 
 A create already writes the heap, the primary key, the expiry index, and about a kilobyte of WAL, about 2.8 megabits a second at 350 creates, and that expiry index stays because the sweeper has a query. A syntax index is another write and a hot page for a query I do not serve, so I refuse it even though tens of kilobytes a second would not melt the disk. A second replica does not make the primary write the row twice: it costs another 135 GB of promotable disk and a copy of that WAL. The bodies are a different class, 4.5 TB of object storage. Copying them cross-region is about 9 megabits a second average, which I will not confuse with the 1.4 gigabits of user egress at the edge.
+
+### Staff depth: three bills
+
+Create already writes heap, PK, `expires_at` index, ~1 KB WAL → ~2.8 Mbit/s at 350 creates/s. That expiry index stays because the sweeper has a query.
+
+**Refuse syntax index.** Another write and a hot leaf for a query you do not serve. Tens of KB/s is not the reason — the reason is write amp and vacuum for no product path.
+
+**Replica cost.** +135 GB promotable disk and a copy of the WAL (~2.8 Mbit/s peak), not double writes on the primary. Cheap disk that cannot be promoted is not a replica for day 13's story.
+
+**Bodies.** 4.5 TB object storage class. Cross-region copy ~9.3 Mbit/s average — do not confuse with 1.4 Gbit/s user egress at the edge. Three bills: primary write path, replica disk+pipe, body storage/replication.
+
+**10×.** WAL ~28 Mbit/s; metadata ~1.35 TB/copy; bodies ~45 TB; egress ~14 Gbit/s. Index refusal still holds.
+
+
+### Staff depth: say three invoices
+
+**Invoice A — primary write path.** Heap + PK + `expires_at` index + ~1 KB WAL/create → ~2.8 Mbit/s at 350/s. Expiry index stays: sweeper query. Syntax index refused: write amp + vacuum for no API.
+
+**Invoice B — replica.** +135 GB promotable disk + WAL ship ~2.8 Mbit/s peak. Not double writes on the primary. Non-promotable cheap disk fails day 13.
+
+**Invoice C — bodies.** 4.5 TB object class; cross-region ~9.3 Mbit/s average. Do not confuse with ~1.4 Gbit/s edge egress. Different SKU, different failure mode.
+
+**10×.** A ~28 Mbit/s WAL; B ~1.35 TB/copy; C ~45 TB and ~93 Mbit/s replication; egress ~14 Gbit/s. Refusal of decorative indexes still holds — cost is operational focus, not only dollars.
+
+
+
+### Failure the user sees when costs are confused
+
+**Adding a syntax index "just in case."** Creates slow; vacuum rises; no product query uses it. On-call pages on write latency they cannot attribute until someone notices the new index.
+
+**Replica on non-promotable disk.** Failover discovers the replica cannot take writes. Create outage extends past the 30-second election into a restore. Users see prolonged 503s.
+
+**Calling edge egress "replication cost."** Finance sizes the wrong pipe; when you turn on cross-region body copy you are surprised by a smaller number that still matters for the wrong reason. Say 1.4 Gbit/s egress and 9 Mbit/s replication as different sentences.
+
+### Probes
+
+**"Why keep expires_at index?"** "The sweeper has a range query. Without it we scan heaps we cannot afford."
+
+**"Why not index syntax?"** "No API. Write amplification and vacuum for zero product."
+
+**"Does a replica double writes?"** "No. It costs another 135 GB of promotable disk and a copy of the WAL — about 2.8 megabits a second at peak creates."
+
+
+### Caption and talk track denser
+
+Caption for the three-bills diagram: "Primary write path, replica disk+pipe, body storage — not one 'cost.'"
+
+**Say this expanded.** A create already writes the heap, the primary key, the expiry index, and about a kilobyte of WAL — about 2.8 megabits a second at 350 creates — and that expiry index stays because the sweeper has a query. A syntax index is another write and a hot page for a query I do not serve, so I refuse it even though tens of kilobytes a second would not melt the disk. A second replica does not make the primary write the row twice: it costs another 135 GB of promotable disk and a copy of that WAL. The bodies are a different class, 4.5 TB of object storage. Copying them cross-region is about 9 megabits a second average, which I will not confuse with the 1.4 gigabits of user egress at the edge. At 10× those become about 28 megabits of WAL, 1.35 TB of metadata per copy, 45 TB of bodies, and about 14 gigabits of egress — still three invoices.
+
+
+### Named refusals denser
+
+Against indexing every column for flexibility: you refuse write amp and vacuum without a query. Against a bargain non-promotable replica: you refuse a failover that becomes a restore. Against folding egress into replication cost: you refuse a finance error that hides a 1.4 Gbit/s edge bill behind a 9 Mbit/s pipe. Against putting bodies back on the primary to "simplify": you refuse day 14's NIC and disk failure mode.
 
 ## Kit artifact
 
