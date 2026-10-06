@@ -111,6 +111,14 @@ Until the tombstone is in the picture, the honest contract is: origin reads can 
 
 Expiry does not delete the key. The read checks `expires_at`. A stale entry past expiry is a 404 on the hit path. That is why the timestamp is inside the value.
 
+### The two numbers the cache has to state
+
+**The hit rate you need, not the one you hope for.** The primary must see at most 15,000 point reads at peak. Misses are 17,400 × (1 − h). Solve: h ≥ about 14% just to get under the ceiling. That is the honest minimum, and it is small. Running a primary at its ceiling is not a plan, so say the target with headroom: keep the primary under about half its ceiling, 7,500, and you need h ≥ about 57%. State it in that order: "I need 14% to survive and I want about 57% to sleep." You still have not claimed what the traffic will give you. You have said what it must give you, which is a number a load test can falsify.
+
+**Memory, bounded by the TTL.** An entry lives at most 60 seconds after its last fill. The most distinct ids you can hold is reads per second times TTL: 17,400 × 60 ≈ 1.04 million entries, and that is the worst case where every read is a different id. A metadata entry with its key and the cache's own overhead is on the order of 200 bytes. About 1 million × 200 B is roughly 200 MB. "A few gigabytes" is headroom, not need. Say the arithmetic, because it is also the reason you do not shard the cache today: the TTL, not the 450 million live objects, sets the working set.
+
+What staff sounds like here is the order of claims. First the ceiling you are over, then the minimum hit rate that fixes it, then the memory the TTL implies, then the one failure that makes the cache a dependency. A senior answer opens with "Redis, 90% hit rate" and spends the rest of the interview defending a number nobody measured. A staff answer can survive the interviewer saying "assume the hit rate is 30%": at 30%, misses are about 12,200, under the ceiling with little room, and you say exactly that.
+
 ## Diagrams
 
 ![Whiteboard: cache-aside on metadata, hit returns, miss goes to the primary](assets/day-10-cache-aside.svg)
@@ -139,6 +147,8 @@ sequenceDiagram
 
 There is no arrow from the cache to the primary. If you drew one, you built a different mechanism and you should say so.
 
+Caption it: "Fill after the body is confirmed. No negative fill. No cache-to-primary arrow." The `set` arrow comes after the NVMe read on purpose. Move it above the body read and you have cached a success you never saw.
+
 ### What must not be cached
 
 ```mermaid
@@ -151,6 +161,18 @@ flowchart TB
   row --> no4[Do not cache 404]
 ```
 
+Caption: "One yes, four refusals, each with a reason." Practice saying the reason with each refusal: the hash widens a breach, the body is a second disk, a bare bit cannot be re-checked, and a 404 is scanner food. A list of refusals without reasons sounds like a rule you memorized.
+
+## Failure the user sees, now that the cache is in the path
+
+**The cache dies or restarts empty.** Hit rate goes to zero. The primary sees the full 17,400 against a 15,000 ceiling, about 16% over. Users see reads slow down, then time out at the tail, and creates slow with them because the same primary commits the writes. Recovery is fast in principle: hot ids refill on their first miss. In practice the refill traffic is the overload. This is the stampede day 11 owns. Today the sentence is: "cache restart is a primary incident, so I page on primary CPU and I shed before I melt."
+
+**The cache is slow, not dead.** Worse than dead. A `get` that hangs holds an app request and a connection. Set a tight budget on the cache call, a few milliseconds, and treat a timeout as a miss. Then say the catch: a slow cache that times out on every call becomes a 0% hit rate, which is the dead-cache case with extra latency on top. The budget turns a hang into a known failure; it does not make the primary bigger.
+
+**A delete races a fill.** The user deletes, gets 204, shares "it's gone," and a stranger opens the link and sees it for up to 60 seconds. That is the race without a tombstone. With the tombstone, it narrows to readers who were already streaming. Say which one you built.
+
+**Clocks disagree.** The hit path checks `expires_at` on the app clock. An app clock a few seconds behind serves an expired paste for those seconds. Time sync on the app hosts keeps that to well under a second; say it so the skew is a stated bound, not a surprise.
+
 ## Trade-offs
 
 **Choice.** Cache-aside of the metadata row, 60 second TTL, tombstone on delete, body stays on the NVMe, primary is the only fill source.
@@ -160,6 +182,8 @@ flowchart TB
 **What you give up.** A dependency. Cache down throws the full read peak back at a primary you said cannot take it. You also give up a strict "delete is instantly invisible" unless the tombstone race is closed, and even then a reader who already passed the check is streaming. You accept a bounded race instead of a two-phase commit between Postgres and the cache.
 
 **Why not the alternatives.** A bigger primary spends money on a ceiling you will hit again when the read ratio moves, and it does not give you a place to absorb a hot key tomorrow. A replica can serve stale deletes if you read it for this path; that refusal is day 13, and you will not sneak the replica in as "the cache." Write-through fills entries nobody reads and still needs the delete path. It does not remove the race; it moves it.
+
+**Name the refusal inside each alternative.** Against the bigger primary: you refuse to buy a ceiling that moves the cliff without giving you anywhere to absorb a hot key. Against a replica for every GET: you refuse to serve deletes stale by replication lag on the path where delete must win, and you refuse to sneak a replica in as "the cache." Against write-through: you refuse to spend RAM on pastes nobody reads, since most links are never hot, and you notice it does not remove the delete race. Each refusal is about the delete contract or the memory, not taste.
 
 **10× break.** Peak reads ~174,000. Even a 90% hit rate, which you must not invent today as a silent factor, leaves 174,000 × 0.10 = 17,400 misses. That is the whole peak again, and it is over the 15,000 ceiling. At 10× the cache is necessary and not sufficient; you will need the hit rate stated in the open (day 21) and a plan for the miss storm (day 11). A 60 second TTL at 10× also means a deleted viral paste can be served from a stale entry to a much larger audience. The tombstone matters more as the site gets bigger, not less.
 
@@ -177,7 +201,17 @@ flowchart TB
 
 **If they ask what you page on.** Cache hit ratio collapsing to the floor, primary CPU, and `body_missing`. A low hit ratio on a quiet day may be fine. A low hit ratio at peak is the primary about to melt. Alert on primary CPU, not on a vanity hit-rate target.
 
+**If they ask what hit rate you are assuming.** "None. I need about 14% to get the primary under 15,000 and I want about 57% so it sits at half. Those are requirements I'd verify with a load test, not a forecast. If the traffic is uniform over 450 million ids, I don't get them, and I say the cache doesn't fix this."
+
+**If they ask how big the cache is.** "TTL times read rate bounds it: 17,400 a second for 60 seconds is about a million entries, a couple hundred bytes each, so roughly 200 MB. I'd give it a few GB and not shard it."
+
+**If they ask why not cache the body too, to save the disk read.** "The disk wasn't the break; the primary was. Bodies are up to a megabyte, so a few hot ones evict thousands of rows. Origin bandwidth is a different break with a different answer, the edge."
+
 **If they ask read-your-writes for the creator.** The creator does not need to GET. They have the bytes. A reader who is handed the URL a second later will miss, fill, and see the row, because the row committed before the 201. You do not read a replica on this path, so you do not have lag in the fill.
+
+## Say this in the room
+
+The primary does about 15,000 point reads while committing writes, planning number, and peak is 17,400. So I need a hit rate of at least 14% to get under it and I want about 57% so the primary sits at half. Those are requirements I'd test, not a forecast. Cache-aside on the metadata row only: `expires_at`, size, syntax. The hit path still checks `expires_at`. I don't cache the body, the token hash, a bare readable bit, or 404s. The miss reads the primary, confirms the body exists, then fills with a 60 second TTL. That TTL bounds memory to about a million entries, roughly 200 MB, and bounds a missed invalidation; it is not how I delete. Delete commits the row, writes a tombstone the fill path can't overwrite, unlinks, then 204. Cache down means a 0% hit rate and 17,400 on a 15,000 primary: I page on primary CPU and I shed before I melt. At 10×, even 90% hits leaves 17,400 misses, so the cache is necessary and not sufficient.
 
 ## Kit artifact
 
