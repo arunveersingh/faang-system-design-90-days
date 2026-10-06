@@ -126,6 +126,43 @@ User: a live paste looks deleted, or a dead store looks deleted, and you will re
 
 **Patch:** one mapping, written down. Timeout and 5xx from the bucket are 503. A confirmed missing object with a live row is 500 and a page, never a reap of the row. 404 only from the row's absence or expiry or a bad token. Nothing in the CDN config caches 404 or 500. This is the highest-leverage patch in the list, because it prevents the other jobs from "helpfully" destroying state.
 
+### Four holes the deeper pages left for you
+
+Each earlier day's numbers hide a hole of their own. These are the ones a staff interviewer who read your whole design would open.
+
+**10. Least connections rewards the fastest failure.** Trigger: one app loses its path to the primary and returns instant 500s. User: well over a quarter of requests fail, because the broken app always looks least loaded. **Patch:** passive outlier ejection on 5xx skew, at most one of four ejected. The bound is the patch; without it, ejection rebuilds the deep-health-check outage.
+
+**11. The global create cap bounds rows, not bytes.** Trigger: a botnet under every per-IP limit posts only 1 MB bodies. User: nobody, until the bucket fills; 350 creates a second × 1 MB is 350 MB/s, about 30 TB a day, against a 4.5 TB plan. **Patch:** a global byte budget around 10 MB/s, about 3× the peak ingest you sized. Worst case becomes about 860 GB a day, visible before lunch.
+
+**12. Connection pools that add up past the database.** Trigger: someone scales the app tier from four to six to "add headroom." Six pools of 20 are 120 connections against a default limit of 100. User: the new apps fail to connect, return 500, and the balancer keeps sending them traffic because their shallow health check is green. **Patch:** pool size is part of the capacity plan, and the sum is checked against the database's limit before scaling, not after.
+
+**13. A stale-if-error window in the wrong overlay.** Trigger: the edge is configured to serve stale on origin errors, and the primary, not the bucket, goes down. User: the origin cannot tell live from deleted, every answer is an error, and edges serve deleted pastes for the full stale window. **Patch:** keep the stale window short, a few minutes at most, and say that it is only delete-safe while the row check works. The degrade that was correct on day 25 is a resurrection on the primary overlay.
+
+### Ranking the holes so you know what to say first
+
+Severity is three questions, asked in this order: can it be undone, how many users, how likely.
+
+| Hole | Reversible? | Who | Say it |
+|---|---|---|---|
+| 404 mapped wrong, reaper acts on it (9, 4) | No: bytes deleted | Every reader of those pastes | First |
+| Promotion tail (5) | Partly: WAL may be recoverable | Hundreds of links per second of lag | First |
+| Byte budget missing (11) | Yes, but costly | Everyone, once the bucket fills | Second |
+| Least-connections black hole (10) | Yes | A quarter or more of requests | Second |
+| Edge and tombstone lies (1, 2) | Yes, self-healing | Readers of deleted pastes | If not already said |
+| Per-IP fairness, singleflight fan-out (6, 7) | Yes | Some users degraded | When they ask about abuse |
+
+Irreversibility is the tie-breaker every time. A bug that loses a paste outranks a bug that serves one for a minute too long, even if the second hits more people.
+
+### What a good patch has
+
+Three properties, and you should say them when the interviewer asks "is that enough?": it is a **rule** you can write in one sentence, it has a **metric** that shows when it is violated, and its **cost** is named. "Tombstone wins on fill; page on fills rejected by a tombstone; costs one compare per fill" passes. "Better cache invalidation" fails all three.
+
+### The 20-second shape
+
+Deliver each hole as trigger, user, bound, patch. Hole 9 at speaking speed: "A helper maps a bucket timeout to not-found. The reader sees a 404 for a live paste, and the reaper, trusting that signal, deletes the object. Today nothing bounds it. Patch: one status map, timeouts are 503, a missing object under a live row is a page and never a reap." Twenty seconds, one loss, one rule. Do two of these properly instead of naming twelve.
+
+What staff sounds like here is ranking before reciting. The interviewer asked where the design is wrong; the staff answer leads with the irreversible hole, gives its user and its bound, patches it with a rule that has a metric, and stops. A senior answer lists every race it knows in the order it remembers them.
+
 ### What you will not red-team today
 
 Raft, multi-region active-active, a new id scheme, moving off Postgres, a malware model. Those are other interviews. If you bring them up, you are avoiding a hole you could have patched with a sentence.
@@ -145,6 +182,8 @@ flowchart LR
 
 The dotted arrow is the hole. The solid ones are the design. A red team that cannot draw this will hand-wave "cache invalidation is hard" and stop.
 
+Caption it: "Origin now, tombstone in a millisecond, edge within a minute. The dotted arrow is the only unbounded one, and the patch bounds it." Write each arrow's time on it. A delete is three moments, and the drawing should show their sizes.
+
 ### Severity, so you know what to say first
 
 ```mermaid
@@ -159,6 +198,8 @@ flowchart TB
 
 Lead with loss. A fairness complaint is real and it is not how you open.
 
+Caption: "Irreversible first." The top box is the one where a patch prevents data loss; the bottom box is where a patch improves fairness. Point at the top box when you start talking.
+
 ## Trade-offs
 
 **Choice.** Patch by tightening rules: tombstone-wins, 503 versus 404, age floor, stated RPO, stated edge lag, no app retry. Add no box.
@@ -168,6 +209,8 @@ Lead with loss. A fairness complaint is real and it is not how you open.
 **What you give up.** The feeling of a closed design. Several holes remain as named trades (60 seconds, async RPO, per-IP fairness). You are betting a staff interviewer would rather hear the trade than watch you bolt on a region in the last five minutes.
 
 **When the alternative is actually the patch.** If they say the promotion tail is unacceptable for this product, sync commit is the patch, and you should have switched on day 13. That is still not a new product. It is the other branch of a trade you already own. Take it cleanly. Do not take "and also Kafka, and also a second region" in the same breath.
+
+**Name the refusal inside the alternative.** Against synchronous global purge: you refuse to make every delete wait on the slowest edge to close a 60 second window you already priced. Against an idempotency service: you refuse a key the anonymous client will not keep. Against a consensus log or a global lock: you refuse new dependencies on the read path to fix fan-outs the fill cap already bounds. Against a multi-region bucket: you refuse a replication design to answer an availability question nobody asked for. Each refusal names the hole it would not actually close better than a rule does.
 
 **10×.** Every hole gets louder. A 60-second edge lie at 10× is ten times the readers. The reaper bug deletes ten times the objects. The reasoning does not change. If your only 10× answer is "the holes matter more," add one concrete: the fill cap and the 503 mapping must be in place before you multiply traffic, because a wrong 404 at 10× becomes a reap of the wrong keys at a rate you cannot undo by hand.
 
@@ -183,7 +226,15 @@ Lead with loss. A fairness complaint is real and it is not how you open.
 
 **If they ask which hole you would not fix.** The 60-second edge. Fixing it completely means not having a CDN, and you needed the CDN for the hot byte. You would rather own the minute than own 16 Gbit/s on one NIC.
 
+**If they ask which hole is worst.** "The one that can't be undone: a wrong 404 mapping that a reaper or purge acts on. It deletes bytes. The edge lie hits more people and heals itself in a minute. Irreversibility outranks reach."
+
+**If they ask how you'd know a patch is working.** "Each one has a metric. Tombstone-wins: count fills rejected by a tombstone. Status map: 404s should never rise with bucket 503s. Byte budget: global bytes per second against the cap. If I can't name the metric, it isn't a patch yet."
+
 **If they ask what you page on, as the red team.** `body_missing`, outbox age, replica lag, CDN hit rate, a rise in 404s that correlates with 503s from the bucket (that correlation means you are mapping wrong). Not raw 404 volume.
+
+## Say this in the room
+
+Ranked by what can't be undone. First: a status map that turns a bucket timeout into a 404 lets the reaper delete live bytes; the patch is one map, timeouts are 503, a missing object under a live row is a page, never a reap. Second: async promotion loses the unshipped tail, hundreds of links per second of lag; I state the RPO and don't reap young orphans after a failover. Then the bounded lies I'd already said: edges can serve a deleted paste for up to 60 seconds, and a late fill can resurrect one unless the tombstone wins. Two holes from the deeper design: the global create cap bounds rows, not bytes, so I add a byte budget around 10 MB a second; and least connections rewards an app that fails fast, so ejection on 5xx skew, one of four at most. Each patch is a rule with a metric and a cost. No region, no Kafka, no lock service.
 
 ## Kit artifact
 
