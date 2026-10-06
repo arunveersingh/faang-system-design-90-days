@@ -52,7 +52,7 @@ That is the entire problem. Thirty-five minutes. Blank page. No notes.
 
 ## Rubric
 
-Same six dimensions as day 7. Score 1–4 from your page only. A senior-shaped loop is mostly 3s. A staff-shaped loop is a 4 on the deep dive and a 4 on failure, not more boxes.
+Same six dimensions as day 7. Score 1–4 from your page only. A senior-shaped interview is mostly 3s. A staff-shaped interview is a 4 on the deep dive and a 4 on failure, not more boxes.
 
 ### Requirements
 
@@ -206,6 +206,24 @@ View: CDN in front of public GETs only. Origin is the app, bucket stays private.
 
 Delete: commit row delete and outbox, tombstone the metadata key, 204. Worker deletes four objects and purges. Ids are never reused, so a late job cannot delete a newer image's keys.
 
+### The upload is slow-client-bound, not QPS-bound
+
+Little's law on the request, not the bucket. Assume a phone uplink around 10 Mbit/s, about 1.25 MB/s. A 2 MB mean upload takes about 1.6 seconds to arrive; a 20 MB cap upload about 16 seconds. At 36 uploads a second, that is about 58 uploads in flight across the tier at the mean, and about 576 if they were all max-size. Fully buffered, the mean case is about 116 MB of memory and the max-size case is about 11.5 GB. So the in-flight slot from the upload path is a byte cap as much as a count cap, and the app should **stream** the body to the bucket with a small bounded buffer, sniffing the magic bytes from the first few kilobytes, rather than holding 20 MB per request.
+
+**The alternative a staff answer names: upload straight to the bucket.** The client asks for an upload slot; the app creates a pending row and returns a short-lived signed PUT URL for `img/{id}/original`; the client PUTs to the bucket; the client calls "complete"; the app checks the object's size and reads its first bytes, then commits the row as live with the outbox job, and returns 201. It takes the 20 MB bodies and the slow clients off the app entirely. It costs a third round trip, a pending state that must expire on its own, and validation that happens after the bytes landed instead of before. Take it when clients are mostly mobile, when the cap is large, or at 10×. At 36 uploads a second with streaming, the simpler single POST is defensible. Say both and pick one.
+
+### The worker is where the crash windows hide
+
+**Delete races the worker.** The owner deletes while a resize is running. The delete commits, the detach job removes the four objects, and then the slow worker PUTs three thumbnails for an id with no row. Those objects are orphans nobody's failure log knows about. **Patch:** the worker's last step is a conditional update, set `thumbs_ready` where the id still exists. Zero rows updated means the row is gone: the worker deletes the thumbnails it just wrote. If the delete commits after that update instead, the detach job runs after it and removes everything, because every PUT happened before the update. Ordering closes the window; no lock is needed.
+
+**Decompression bombs.** A 20 MB PNG can declare 30,000 × 30,000 pixels: about 900 megapixels, 3.6 GB once decoded at four bytes a pixel. Read width and height from the header before decoding and refuse past a pixel cap, say 50 megapixels, about 200 MB decoded. Mark the image `failed`; the original stays fetchable as uploaded bytes; thumbs stay 404. Give each job a memory limit and a timeout so one image cannot take a worker down with it. This is the "resize is CPU you do not control" sentence made concrete.
+
+**Metadata leaks.** Phone photos carry location in EXIF. Re-encoded thumbnails carry none; the original is served as uploaded unless you decide to strip location at upload. Say the decision. And no SVG in the allow-list: it is a document that can run script.
+
+**Size the pool for catch-up, not for the average.** Seven cores at 200 ms process about 35 jobs a second, which is barely the peak of 36. A one-hour worker outage at peak leaves about 130,000 jobs (36 × 3,600). Seven cores fall further behind through the busy hours and clear it only at the average rate, with about 23 jobs a second of surplus: roughly an hour and a half. Double the pool to about 14 cores, about 70 jobs a second: at the average of 12 arrivals that is about 58 jobs a second of surplus, and the backlog clears in roughly 37 minutes. The user-visible number is thumb latency after an incident, and it is the pool's headroom that sets it.
+
+What staff sounds like on this problem is finding the windows the pastebin did not have: a slow 20 MB upload holding memory, a worker that outlives a delete, an image that is small on disk and huge in memory. Each comes with a number or an ordering, and none of them needs a new box.
+
 ### Diagrams you should have had
 
 ```mermaid
@@ -225,6 +243,8 @@ sequenceDiagram
   A->>P: thumbs_ready
 ```
 
+Caption it: "201 above the queue line. Thumbs below it, and `thumbs_ready` is a conditional update, last." The worker's final arrow is the one that closes the delete race; label it "where id still exists."
+
 ```mermaid
 flowchart LR
   viewer[Viewer] --> cdn[CDN]
@@ -234,11 +254,41 @@ flowchart LR
   app --> bucket[(Private objects)]
 ```
 
+Caption: "Same edge-first view path as the pastebin, but the hot object is 20 MB." Write "32 Gbit/s if one viral original misses" beside the CDN. That number is why the edge is not optional here.
+
 ### Failure
 
 Bucket down during upload: 503, no 201, no row. During view: CDN hits work until max-age; cold fetches 503, not 404. Worker down: uploads still 201, originals still fetch, thumbs stay 404, status stays not ready, outbox age grows. That backlog is what the user can see: thumb latency. Page on outbox age and on worker failures. Do not page on 404 alone; not-ready is a 404 on purpose.
 
 Primary down: uploads stop (no commit). Views of cached metadata and CDN hits continue until TTL. You do not promote a replica you did not draw. If you drew one, say the window.
+
+### Failure the user sees, per person
+
+**Uploader, bucket slow.** Streaming uploads stall; slots fill; new uploads get 503 with a jittered `Retry-After` before the body is read. A phone that already sent 15 MB loses it. Say that as the cost of not buffering, and the reason direct-to-bucket upload with resumable parts is the 10× conversation.
+
+**Uploader, workers down.** 201 as usual; status says not ready for as long as the backlog lasts, about 37 minutes to clear after an hour's outage with the doubled pool. The original link works from the first second.
+
+**Viewer of a fresh image.** Original works. Thumbs 404 until ready, same body as missing. The viewer's client shows a placeholder and retries with backoff; only the owner needs the truth, from the status endpoint.
+
+**Viewer of a viral original.** Edge hits through any single origin dependency failing, until max-age. If the edge misses at 200 fetches a second of a 20 MB object, one origin NIC is gone in the first second; shed that object before the site.
+
+**Owner deleting.** 204 after the row commit. Objects removed by the worker; a resize still in flight cleans up its own thumbnails via the conditional update. Edges may serve the image for up to 60 seconds.
+
+### Trade-offs you should have named
+
+**Upload through the app versus straight to the bucket.** Through the app: one request, validation before durability, slow clients and 20 MB bodies on your processes. Direct: bodies never touch the app, at the cost of a pending state, a third call, and validation after the fact. You refuse direct at 36 a second with streaming; you take it at 10× or for mobile-heavy traffic.
+
+**Eager versus lazy thumbnails.** You refuse lazy, resize on first fetch, because 30 thumbnail fetches per image means nearly every image is viewed anyway, and lazy puts CPU and a cold-start herd on the read path of a viral image. If viewing dropped to about one fetch per image, lazy with singleflight on the resize would deserve a second look.
+
+**Public 404 versus a "processing" status.** You refuse a public not-ready status because it is an existence oracle; the owner already knows the id and gets the truth from the token-gated endpoint.
+
+### Probes the interviewer will use, with the answer
+
+**"Why not resize in the upload request?"** "A 2 MB decode is about 200 ms of CPU I don't control, and a poison image can take seconds or a worker. If 201 waits on it, a stuck worker is an upload outage and a client timeout retries the whole 2 MB POST."
+
+**"What if the delete lands while the resize runs?"** "The worker's last step is a conditional `thumbs_ready` update. Zero rows means the image is gone, so the worker deletes what it just wrote. Otherwise the detach job runs after and removes all four keys."
+
+**"What's your worst-case memory per upload?"** "If I buffer, 20 MB times every slow client; about 11.5 GB at peak if they were all max-size. So I stream to the bucket with a small buffer and sniff the magic bytes from the first chunk."
 
 ### What you did not need
 
@@ -246,7 +296,7 @@ A pastebin's 17,400 reads/s of 10 KB. A search index. A GPU. A second queue for 
 
 ## Say this in the room
 
-Uploads are about 12 a second because a million a day divided by 86,400 is about 12, and the bytes are the story: 2 MB mean is 2 TB a day, not a read-QPS problem copied from the pastebin. A 20 MB image at 200 fetches a second is 32 Gbit/s, so the edge holds the hot object and the app does not. I return 201 once the original PUT has acked and the row and the job have committed. The three thumbnails run after, on keys derived from the id, so doing the job twice overwrites the same objects. A public fetch of a thumb that is not ready is a 404 with the same body as missing, so a stranger learns nothing, and I do not let the CDN cache that 404. The owner polls status with the token and can see not-ready or failed. If the bucket is down, upload is 503 and a cold fetch is 503; a warm edge can still serve until max-age. That 200 is not a 404, and the 503 is not a 404 either.
+Uploads are about 12 a second because a million a day divided by 86,400 is about 12, and the bytes are the story: 2 MB mean is 2 TB a day, not a read-QPS problem copied from the pastebin. A 20 MB image at 200 fetches a second is 32 Gbit/s, so the edge holds the hot object and the app does not. I return 201 once the original PUT has acked and the row and the job have committed. The three thumbnails run after, on keys derived from the id, so doing the job twice overwrites the same objects. A public fetch of a thumb that is not ready is a 404 with the same body as missing, so a stranger learns nothing, and I do not let the CDN cache that 404. The owner polls status with the token and can see not-ready or failed. If the bucket is down, upload is 503 and a cold fetch is 503; a warm edge can still serve until max-age. That 200 is not a 404, and the 503 is not a 404 either. Uploads are slow-client-bound, so I stream to the bucket rather than buffer 20 MB per request, and I'd move to signed direct uploads at 10×. The worker checks the pixel count before it decodes, and its last step is a conditional update so a delete during a resize cleans up after itself.
 
 ### After you read this
 
