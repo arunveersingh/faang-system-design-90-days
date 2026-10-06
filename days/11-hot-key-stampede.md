@@ -92,6 +92,28 @@ What you do not add:
 - A counter of hits in the primary. That write path is hotter than the read you were protecting.
 - Pre-warming every live paste. 450 million entries will not fit, and most are never read.
 
+### The stampede, as arithmetic
+
+Misses during a refill window are arrival rate times fill time. Say both cases.
+
+**Healthy primary.** A point read returns in about 2 ms. Without singleflight, 8,700 reads a second for 2 ms is about 17 identical lookups in flight. Survivable, which is why "one row is cheap" sounds right in the room.
+
+**Primary already busy.** The same lookup takes 50 ms because the primary is near its 15,000 ceiling. Now it is 8,700 × 0.05 ≈ 435 identical lookups in flight, every one of which adds load that makes the next one slower. The stampede is a feedback loop on latency, not a fixed count. That is the sentence that makes an interviewer stop pushing.
+
+**With singleflight.** At most one lookup per process per key per wave: four, at either latency. The rule underneath is worth saying: singleflight turns misses-per-request into misses-per-distinct-key. That is a huge win for a hot key and does nothing for the long tail, where each key is read about once per TTL anyway.
+
+**Cold cache, the real cliff.** After a cache restart, every request misses. Singleflight collapses the hot key to four lookups, but the rest of the 17,400 a second is spread over many distinct ids, and those do not collapse. The primary still sees most of the peak against its 15,000 ceiling. Singleflight is necessary here and not sufficient; shedding (day 19) is the rest of the answer. Do not let "we singleflight" stand in for a plan for a cold restart.
+
+### Where the waiters stop waiting
+
+A waiter budget is a number, not "with a timeout." Set it a little above the primary's healthy p99, call it **100 ms**. A waiter that runs out gets one of two answers: the stale entry, if it is still inside the jitter band and no tombstone exists, or a 503. It does not fall through to its own primary read; that rebuilds the stampede one timeout later. A filler that fails releases the waiters with the error, and the next request elects a new filler. One stuck filler costs at most 100 ms of latency for the readers of one key in one process.
+
+### The hot key also lives on one cache node
+
+8,700 gets a second on one key land on one cache node however you shard later, because the key hashes somewhere. One in-memory cache node handles that easily at 1×. At 10× it is 87,000 gets a second on one key on one node, in the range where a single node's network and CPU start to matter. The fix there is a tiny in-process copy of the hot metadata for about a second on each app, and its cost must be said in the same breath: a delete can be served by that copy for up to one more second per process. You take that only with a number in front of you. Day 18 returns to this.
+
+What staff sounds like here is separating the three cliffs: one hot key expiring (singleflight), many keys expiring together (jitter), and the whole cache coming back empty (shedding). A senior answer names one mechanism and stretches it over all three. A staff answer says which cliff each control is for and which cliff it leaves standing.
+
 ### The body of the hot key
 
 8,700 reads/s times a 10 KB mean is about **87 MB/s** off the NVMe for that one file, or about **8.7 GB/s** if the viral paste is the 1 MB cap and you were wrong to use the mean. One file in the page cache can do the mean case. The cap case is an origin-bandwidth break. Do not "fix" it by putting the 1 MB value into the metadata cache under the same stampede logic and calling it done. Note it. The CDN day is where public bytes leave the origin. Today, singleflight also collapses the **body** read: one process reads the file once per miss wave and can hold the bytes for the waiters. You are allowed to keep that one body in process memory for the singleflight. You are not allowed to pin every hot body forever on every app. The process is stateless again a moment later.
@@ -122,6 +144,8 @@ sequenceDiagram
 
 The other three app processes may do this once each. Draw a second arrow only if you are answering "is singleflight global?" The answer is no.
 
+Caption it: "One lookup per process per wave. Four apps, at most four." Write the waiter budget on the `all waiters` arrow, 100 ms, so the interviewer sees that a slow filler has a bound before they ask.
+
 ### Two clocks that are not the same
 
 ```mermaid
@@ -136,6 +160,18 @@ flowchart LR
 
 If a design merges these three into one timer, it will either serve deleted pastes or forget them too slowly to bound RAM. Keep the arrows apart.
 
+Caption: "Three clocks, three jobs. Only two of them pull a paste." Point at the TTL box when you say "bounds a mistake," and do not let its arrow touch "origin stops serving."
+
+## Failure the user sees, around a hot key
+
+**The hot entry expires, singleflight works.** Readers in each process wait one primary round trip, a couple of milliseconds. Nobody notices. This is the case to say quickly and move past.
+
+**The filler is slow.** The primary is busy and the lookup takes longer than the 100 ms waiter budget. Readers of the hot paste get the stale entry if one is allowed, otherwise a 503 for that request. Other pastes are unaffected unless the primary is the reason it is slow. Page on waiter timeouts per key; it is a primary symptom showing up first on the hottest id.
+
+**The cache restarts during a viral spike.** The hot key costs four lookups. Everything else misses together, the primary goes over its ceiling, and users see slow reads and failed creates across the whole site, not only on the viral paste. This is the failure to put on the overlay, because it is the one jitter and singleflight do not prevent.
+
+**The author deletes the viral paste.** The tombstone lands, new readers get 404 within one round trip. Readers already streaming finish their stream. A filler with a pre-delete read checks the tombstone and does not resurrect it. Users see it vanish within about a second, not within a TTL.
+
 ## Trade-offs
 
 **Choice.** Per-process singleflight, jittered TTL, tombstone invalidation, stale-while-revalidate only inside the jitter band and never past `expires_at` or a tombstone.
@@ -145,6 +181,8 @@ If a design merges these three into one timer, it will either serve deleted past
 **What you give up.** Singleflight adds wait time on a miss: the waiters take the latency of one primary read, and a slow filler slows them all. You need a timeout so a stuck filler does not pin 8,700 requests. Those timed-out waiters get a 503 or a single extra try, not a private trip to the primary. You also give up perfect global collapse. Three fills can still happen at once.
 
 **Why not the alternatives.** A 5 second TTL makes the stampede twelve times more often and does not replace a tombstone. A cluster lock on every key puts your hottest read behind a lock service for a problem three fills already solved. "Just hit the primary" is fine for one row at 8,700 **if** the only problem is one row. It is not fine when the cache restarts and the whole working set misses. The stampede control is for the cliff, not for the steady state of one popular file.
+
+**Name the refusal inside each alternative.** Against the flat 5 second TTL: you refuse twelve times as many cliffs, and you refuse to pretend a timer is a delete. Against a cluster lock on every miss: you refuse to put your hottest read behind a new dependency to collapse four lookups into one. Against no cache on hot keys: you refuse to bet that the only bad day is one popular row, when the bad day is a cold cache. Each refusal names the cliff it would make worse.
 
 **10× break.** Half of ~174,000 is about **87,000 reads/s on one key.** Four singleflights still protect the primary. The NVMe and the one app process streaming 87,000 responses do not. At a 10 KB body that is 87,000 × 10 KB = 870 MB/s, about 7 Gbit/s, most of a 10 Gbit NIC, from one key, and the process ceiling was 8,000 reads/s. The hot key breaks the **app and the NIC** at 10× long before it breaks a primary you protected. The next fix is to stop serving those bytes from the app (day 15), not a smarter lock. Say that so you do not spend the hour deepening singleflight while the bytes set the building on fire.
 
@@ -160,7 +198,17 @@ If a design merges these three into one timer, it will either serve deleted past
 
 **If they ask about the dogpile on the body.** Singleflight returns the same bytes to the waiters. You do not re-read the file per waiter inside one process. You still do not pin the body in the metadata cache as the general policy.
 
+**If they ask how many lookups a stampede actually is.** "Arrival rate times fill time. At 8,700 a second and a healthy 2 ms, about 17 without help, which is fine. At 50 ms on a busy primary, about 435, and it feeds itself. With singleflight it's four, at any latency."
+
+**If they ask what waiters do when the filler is slow.** "Wait up to about 100 ms, then take the stale entry if it's inside the jitter band and not tombstoned, otherwise 503. They never go to the primary on their own. That would rebuild the stampede one timeout later."
+
+**If they ask whether singleflight saves you on a cold restart.** "For the hot keys, yes. For the long tail, no; those are distinct ids. A cold cache still throws most of the peak at the primary. That's a shedding problem."
+
 **If they ask what you page on.** Primary read QPS spiking while the cache is up, which means singleflight is not collapsing or the cache is not being used. Cache evictions aligned in time. Not the existence of a popular paste. Popular is the product.
+
+## Say this in the room
+
+Half of peak on one id is about 8,700 reads a second. Steady state is a cache hit; the cliff is expiry or a cold cache. Misses during a refill are arrival rate times fill time: about 17 on a healthy primary, about 435 on a busy one, and it feeds itself. So per process I singleflight: four apps, at most four lookups per wave. Waiters get a 100 ms budget, then the stale entry inside the jitter band or a 503, never their own trip to the primary. TTL is jittered 45 to 75 seconds so keys don't fall off together. Delete is a tombstone the filler checks before it sets. Singleflight collapses misses per key, not misses per request, so a cold cache still throws the long tail at the primary; that's shedding, not a smarter lock. At 10× the hot key is about 870 MB/s of bytes from one id, which breaks the app and the NIC first. The bytes leave the origin; the lock doesn't get smarter.
 
 ## Kit artifact
 
