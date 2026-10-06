@@ -95,9 +95,24 @@ Mechanisms that work:
 
 Sick lag is a different number. If the replica is seconds behind, the token rule sends those readers to the primary. That is correct, and it is a thundering herd onto the primary exactly when replication is unhealthy. Cap it. If the primary is the fallback for every read, you have deleted the replica's purpose and you should shed, not stampede. The fallback is for token-holders and for replica misses, not for "replica looks slow, everyone come back."
 
+### Numbers that keep the refusal honest
+
+Happy-path primary reads ~**87/s** against a ~**15,000** ceiling: about **0.6%** utilization. Moving them to replicas to "save the primary" buys lag bugs for spare capacity you are not using. At 10×, ~**870/s** — still ~6% of ceiling. The tripwire for reconsidering is not today's QPS; it is a stated change in hit rates or a primary that is actually commit-bound.
+
+**False 404 rate if you 404 on replica miss.** Average creates ~116/s; each uploader who immediately GETs through a lagging replica is a candidate. Naive replica-miss-as-404 is on the order of **116 false 404s/s** while lag covers new creates — small as QPS, fatal as "I just saved and it's gone." At 10× that is ~**1,160/s** of brand-new pastes looking missing.
+
+**Token vs time pin.** A fixed "read primary for 2 seconds after create" overshoots a healthy **200 ms** lag by 10× on primary reads for uploaders, and still fails when lag is **3 seconds**. The LSN token tracks actual apply position. Anonymous clients that drop the token do not get the replica-path promise; they get origin URL for the first read, which you already can say.
+
 ### What you will not build
 
 A global "read your writes" layer in front of the CDN. Multi-region session affinity. A client clock compared to `created_at`. Clock skew will both false-404 and false-serve, and day 44 is why. The LSN is an order the primary already has. Use it.
+
+**Writes-follow-reads and monotonic writes, in one breath each.** One leader per shard gives both: this client's writes apply in the order they sent them, and a write sees state at least as new as what they last read from that leader. You do not budget whiteboard time for them unless they forbid the leader. If they do, you are in day 35's quorum world and these session guarantees get explicit tokens too.
+
+**Negative caching interacts.** A replica-miss 404 that gets cached at the edge or in the metadata layer freezes the lie for the TTL. The miss rule (ask primary before 404) must run before any negative cache fill. Order: replica miss → primary → only then may a 404 be eligible for negative caching, and you already refused edge 404 caching on day 33. Keep that refusal when replica reads appear.
+
+**Lag SLOs worth paging.** Applied LSN lag in milliseconds and in WAL bytes. A replica that is "up" and 10 seconds behind is a monotonic-read and read-your-writes footgun for every token-holder you fail over to it. Alert before clients do.
+
 
 ## Diagrams
 
@@ -116,6 +131,20 @@ flowchart TB
 
 Sticky without the token never enters the top branch. That is why sticky is not read-your-writes.
 
+Caption: "No row on the replica means ask the primary." The bottom arrow is the product save. Circle it.
+
+Caption note: sticky sessions never take the top branch. If your talk track equates sticky with read-your-writes, the diagram contradicts you.
+
+## Failure the user sees
+
+**Uploader, replica miss treated as 404.** Spinner stops on 201; refresh shows not found for up to the lag. They paste again. Now two pastes. This is the bug that makes day 37's idempotency feel mandatory — but the miss rule alone stops the false 404 even without a key.
+
+**Uploader, sticky to a lagging replica, no token.** Monotonic for that replica's view, but their own 201 is ahead of it. Same false miss until sticky failover or lag catches up.
+
+**Reader who saw the body, then refresh on a behind replica without miss rule.** Paste vanishes and reappears. Monotonic reads broken in public. With the miss rule, refresh hits primary and stays correct at the cost of a primary read.
+
+**Sick lag, everyone falls back to primary.** Token-holders and misses stampede the primary exactly when replication is unhealthy. Without a cap you turn a replica problem into a primary outage. Shed or serve stale with a stated window; do not invite the whole edge-origin path back onto one box.
+
 ## Trade-offs
 
 **Choice.** Keep interactive origin GETs on the primary at ~87 reads/s. If forced off it: replica hit only with a stated lag window, replica miss always re-reads the primary, uploader carries an LSN token or uses an origin URL.
@@ -123,6 +152,8 @@ Sticky without the token never enters the top branch. That is why sticky is not 
 **Alternative.** Every GET on a round-robin replica, 404 when the replica has no row.
 
 **What you give up.** A primary that still does the authoritative reads, which it can afford. On the forced branch, you give up a pure replica-read QPS win: misses and token-holders come back. You keep the uploader from seeing a false 404 of the paste they just saved.
+
+**Name the refusal inside each alternative.** Against moving interactive GETs off the primary at 87/s: you refuse lag bugs for 0.6% of ceiling. Against 404 on replica miss: you refuse ~116 false 404s/s of brand-new pastes. Against sticky-as-read-your-writes: you refuse conflating two guarantees. Against a fixed 2-second primary pin: you refuse a heuristic that overshoots healthy lag and fails on sick lag. Against fixing the CDN with a session token: you refuse a header that does not cross the POP. Each refusal names the failure mode.
 
 **10×.** Happy-path primary reads become about **870/s** if the hit rates hold (87 × 10). Still under 15,000. You **still** do not need replica GETs. The forced branch at 10×, with a 200 ms lag and naive 404s, is about **1,160 false 404s/s** of brand-new pastes (116 × 10). The rule is the same. The embarrassment is larger.
 
@@ -132,11 +163,19 @@ Sticky without the token never enters the top branch. That is why sticky is not 
 
 **Hand-waving.** "Lag is under a second, so it is fine." Fine for which client? The uploader is not a percentile. They are the person who just watched the spinner stop.
 
+**Hand-waving.** "We'll use the same session store we use for auth." There is no auth. Anonymous uploaders have a URL and maybe a token in a header. Pinning by cookie you never set is fiction.
+
+
+**If they ask why sticky is not enough.** "Sticky gives monotonic reads of one replica's log. My write may be ahead of that log. Read-your-writes needs a token or a primary read. Different bug."
+
+**If they ask what the uploader should request.** "The origin URL from the 201 for the first read, or the same URL with the commit token. Not a cached edge URL — the token does not fix the POP."
+
 **If they ask for the numbers you need in prod.** Applied LSN on the replica versus the primary's LSN, as a lag in **milliseconds** and in **bytes of WAL**. Page on lag, not on "replication is green." A green replica can be green and ten seconds behind if the check is "process is up."
 
 ## Say this in the room
 
-Read-your-writes means the client who just got the 201 sees the paste on their next read, and monotonic reads means a later read does not fall back to an older replica; sticky sessions only give you the second. I am not taking interactive GETs off the primary for about 87 reads a second. If I am forced to, a replica with no row is not a 404, and I ask the primary before I say the paste is gone. The uploader sends the commit token from the 201, and a replica behind that token does not answer them. The edge still ignores that token for up to 60 seconds.
+Read-your-writes means the client who just got the 201 sees the paste on their next read, and monotonic reads means a later read does not fall back to an older replica; sticky sessions only give you the second. I am not taking interactive GETs off the primary for about 87 reads a second — about 0.6% of a 15,000 ceiling, still about 870 at 10×. If I am forced to, a replica with no row is not a 404: asking the primary is what stops on the order of 116 false 404s a second of brand-new pastes. The uploader sends the commit token from the 201, and a replica behind that token does not answer them. A fixed two-second primary pin is a heuristic for lag I hoped for; the token matches lag I have. The edge still ignores that token for up to 60 seconds.
+
 
 ## Kit artifact
 
