@@ -27,7 +27,8 @@ Not a new-grad course. Not an AI or ML course. The 90 days are distributed syste
 | 1–7 | Written. Phase 1, the pastebin method. [Start Day 1 in the book](https://arunveersingh.github.io/faang-system-design-90-days/#/days/01-what-the-interview-is-grading.md). |
 | 8–28 | Written. Phase 2, one box at a time on that pastebin. Day 28 is a different mock. |
 | 29–49 | Written. Phase 3, guarantees, keys, and the failure you accept. Day 49 is a different mock. |
-| 50–90 | Assigned in the curriculum. Not written yet. |
+| 50–77 | Written. Phase 4, product-shaped systems. Days 63 and 77 are different mocks.
+| 78–90 | Assigned in the curriculum. Not written yet. |
 
 Phase 1 is the spine. Phase 2 adds a box only when that pastebin misses a number or a fault you already stated. Do not skip ahead to "look distributed."
 
@@ -48,8 +49,8 @@ Students should use the book site, not a local checkout.
 To change the course: clone this repository, branch from `main`, and open a pull request. Lesson pages live in `days/`. The site is Docsify at the repository root (`index.html`, `_sidebar.md`, `.nojekyll`). GitHub Pages should deploy from branch `main` and folder `/` (root), not `/docs`.
 
 ```
-days/            one file per day; Phases 1–3 are days 01–49
-prompts/         problem bank (folder name stays `prompts/`; pastebin is day 7; image upload is day 28; warehouse inventory is day 49)
+days/            one file per day; Phases 1–4 are days 01–77
+prompts/         problem bank (folder name stays `prompts/`; pastebin is day 7; image upload is day 28; warehouse inventory is day 49; job scheduler is day 63; email inbox is day 77)
 design-log/      template only; real notes stay private and are not pushed
 stencils/        the six diagram types, blank
 appendices/      open; company-quirk and paper pointers, not numbered days
@@ -57,7 +58,7 @@ CURRICULUM.md    the 90-day map
 PROPOSAL.md      the brief this repo is built from
 START.md         book homepage
 HOW-TO-STUDY.md  the daily ritual
-CHECKLIST.md     printable Phase 1–3 list; not shared state
+CHECKLIST.md     printable Phase 1–4 list; not shared state
 LICENSE          MIT
 ```
 

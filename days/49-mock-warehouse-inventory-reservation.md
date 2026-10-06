@@ -1,5 +1,5 @@
 <!-- day-nav -->
-[← Day 48 — Close the data chapter](48-close-the-data-chapter.md) · [Checklist →](../CHECKLIST.md)
+[← Day 48 — Close the data chapter](48-close-the-data-chapter.md) · [Day 50 — URL shortener →](50-url-shortener.md)
 
 # Day 49 — Mock: warehouse inventory reservation
 
@@ -317,9 +317,9 @@ Five million attempts a day is about 58 a second, peak about 174, and one hot pr
 
 One amendment line: the concrete miss (two buyers could both pass a check you did in the app, a retry decremented twice, the lock was the whole warehouse, a dead leader became "out of stock," you salted the count). Leave the scores alone.
 
-Days 50–90 are not written. The curriculum is the map. Do not start a product catalog from this reference.
+Next: [Day 50 — URL shortener](50-url-shortener.md). Phase 4 is product-shaped systems. Do not start that catalog from this inventory reference.
 
 ---
 
 <!-- day-nav -->
-[← Day 48 — Close the data chapter](48-close-the-data-chapter.md) · [Checklist →](../CHECKLIST.md)
+[← Day 48 — Close the data chapter](48-close-the-data-chapter.md) · [Day 50 — URL shortener →](50-url-shortener.md)

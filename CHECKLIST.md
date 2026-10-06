@@ -68,4 +68,38 @@ Day 28 is the mandatory log entry for Phase 2. Do not open the reference until y
 
 Day 49 is the mandatory log entry for Phase 3. Do not open the reference until you have scored your own page. Days 45–47 stay closed during that timer.
 
+
+## Phase 4
+
+- [ ] Day 50 — [URL shortener](days/50-url-shortener.md)
+- [ ] Day 51 — [News feed](days/51-news-feed.md)
+- [ ] Day 52 — [Celebrity fan-out](days/52-celebrity-fan-out.md)
+- [ ] Day 53 — [One-to-one chat](days/53-one-to-one-chat.md)
+- [ ] Day 54 — [Large-room chat](days/54-large-room-chat.md)
+- [ ] Day 55 — [Notifications](days/55-notifications.md)
+- [ ] Day 56 — [Typeahead](days/56-typeahead.md)
+- [ ] Day 57 — [Product search](days/57-product-search.md)
+- [ ] Day 58 — [Video on demand](days/58-video-on-demand.md)
+- [ ] Day 59 — [Live video](days/59-live-video.md)
+- [ ] Day 60 — [Nearby](days/60-nearby.md)
+- [ ] Day 61 — [Ticket booking](days/61-ticket-booking.md)
+- [ ] Day 62 — [Metrics ingestion](days/62-metrics-ingestion.md)
+- [ ] Day 63 — [Mock: job scheduler](days/63-mock-job-scheduler.md), closed book, not search or video or nearby or tickets or metrics ingest, then one design-log entry in your own notes
+- [ ] Day 64 — [Metrics query and alerts](days/64-metrics-query-and-alerts.md)
+- [ ] Day 65 — [Payments](days/65-payments.md)
+- [ ] Day 66 — [Payment reconciliation](days/66-payment-reconciliation.md)
+- [ ] Day 67 — [Collaborative document](days/67-collaborative-document.md)
+- [ ] Day 68 — [File sync](days/68-file-sync.md)
+- [ ] Day 69 — [Cart and checkout](days/69-cart-and-checkout.md)
+- [ ] Day 70 — [Flash sale](days/70-flash-sale.md)
+- [ ] Day 71 — [Social graph](days/71-social-graph.md)
+- [ ] Day 72 — [Ephemeral stories](days/72-ephemeral-stories.md)
+- [ ] Day 73 — [Web crawler](days/73-web-crawler.md)
+- [ ] Day 74 — [Order book](days/74-order-book.md)
+- [ ] Day 75 — [Feature flags](days/75-feature-flags.md)
+- [ ] Day 76 — [Audit log](days/76-audit-log.md)
+- [ ] Day 77 — [Mock: email inbox](days/77-mock-email-inbox.md), closed book, not graph or stories or crawler or order book or flags or audit, then one design-log entry in your own notes
+
+Day 63 and day 77 are the mandatory log entries for Phase 4. Do not open the reference until you have scored your own page. Days 50–62 stay closed during the day-63 timer. Days 71–76 stay closed during the day-77 timer.
+
 [Start](START.md) · [How to study](HOW-TO-STUDY.md) · [Curriculum (map)](CURRICULUM.md)
