@@ -57,7 +57,7 @@ The contract you must not break while failing:
 
 - Do not 404 a paste because the store is down. 404 means gone on purpose.
 - Do not 201 a create you could not PUT.
-- Do not delete the row and then tell yourself the object delete "will happen" if you are not sure the bucket is the thing that is down... you are sure, in this overlay. Think before you 204: if you commit the row delete and the object delete cannot run, the object remains until the bucket returns, and the edge may still have the body. That is the same backlog as day 16, extended for the whole outage. Origin readers 404 because the row is gone. That part is fine. You can 204. The detach job sits in the outbox, which is in Postgres, which is up. It will run when the bucket returns. Good. Do not skip the row delete because the bucket is down; a paste you cannot detach is still a paste you can stop serving from the origin.
+- Do not skip the 204 reasoning just because the bucket is down. In this overlay you know the bucket is the dead dependency, so think it through: if you commit the row delete and the object delete cannot run, the object remains until the bucket returns, and the edge may still have the body. That is the same backlog as day 16, extended for the whole outage. Origin readers 404 because the row is gone. That part is fine. You can 204. The detach job sits in the outbox, which is in Postgres, which is up. It will run when the bucket returns. Good. Do not skip the row delete because the bucket is down; a paste you cannot detach is still a paste you can stop serving from the origin.
 
 What is already durable: every paste whose PUT acked and whose row committed, the bytes are in the bucket **if the bucket has not lost data**, only become unreachable. This overlay is unavailability, not silent deletion. `body_missing` is the other overlay (object gone, row present). Do not mix them. If GETs start returning "not found" from the bucket for keys that should exist, you are in data-loss, and the status becomes 500 plus a page, not this 503 story. Ask which one they meant if the interviewer says "unavailable" loosely. You are answering **cannot reach a store that still has the bytes.**
 
@@ -95,9 +95,29 @@ Bucket error rate and timeout rate, which should trip before users finish compla
 
 You do not page "the site is down." It is not, for a reader on a fresh edge. A page that says the whole product is dead will make someone do something dramatic to the primary, which is healthy.
 
+### The outage in numbers, minute by minute
+
+Use peak traffic, because outages do not wait for the trough.
+
+**Creates.** 350 a second fail with 503, about **21,000 a minute**, 210,000 over a ten-minute outage. Each one fails within the 1 second PUT timeout, or instantly once slots are full. None of them gets a link.
+
+**Hot reads do not fall off a cliff; they ramp down.** Edge entries were filled at different moments over the last minute, so when the bucket dies their remaining freshness is spread evenly between 0 and 60 seconds. At t seconds into the outage, roughly (60 − t)/60 of the edge's fresh entries are still serving. At the day 21 assumptions that is about 16,500 reads a second at t = 0, about 8,000 at t = 30 s, and close to zero by t = 60 s. Say "it ramps to zero over a minute," which is more accurate than "a cliff at 60 seconds" and tells the on-call when the read errors will peak.
+
+**Cold reads.** About 870 a second need the bucket from the first second and get 503. After the edge drains, the whole 17,400 a second does.
+
+**The outbox.** Expiry detach alone is about 116 jobs a second on average, up to about 350 at peak, plus user deletes. A ten-minute outage at peak leaves about 210,000 jobs waiting. At a drain rate of 500 a second, that is about seven minutes of catch-up after recovery.
+
+### A bounded degrade that stays correct
+
+The conscious degrade has a standard form: `stale-if-error`, a cache directive that lets an edge serve its stale copy when the origin answers with an error, for a bounded number of seconds. Set it to a few minutes, say 300 seconds, beside the 60 second `s-maxage`. If your CDN honors it, this is the "short extension, said out loud" in configuration rather than in an incident call.
+
+Here is why it is safe in **this** overlay, and it is the best sentence on the page. When an edge entry expires, the edge asks the origin. The origin checks the row first, and the primary is up. A deleted or expired paste gets a **404**, which is not an error, so the edge drops its copy. Only a live row whose bucket GET fails gets a **503**, and only then does the edge keep serving the stale bytes. The order you chose on day 14, row before bytes, is what makes the degrade unable to resurrect a delete or outlive an expiry. In a different overlay, primary down, the origin cannot tell live from deleted and every answer is an error; there the stale window would serve deleted pastes, and you would set it shorter or not at all.
+
+What staff sounds like here is turning the overlay into a timeline with counts and finding the degrade that the earlier design already makes safe. "Creates fail at 21,000 a minute; hot reads ramp to zero over the first minute unless stale-if-error holds them; cold reads fail from second one; deletes still work; seven minutes of drain afterward" is an incident someone can run. "The bucket is down so things fail" is not.
+
 ### Recovery
 
-When the bucket returns, creates work without a migration. Outbox drains. You do not replay creates you 503'd; the clients retry if they still want the paste, and a retry is a new id. You do not have their bytes anymore if you never completed the PUT. Do not build a recovery log of request bodies. That is a second bucket.
+When the bucket returns, creates work without a migration. Outbox drains, throttled: a bucket that just recovered may still be shedding, and a drain at full speed plus a wave of retried creates can knock it back over. The drain takes a fixed share of bucket connections, day 22's split, and creates keep theirs. You do not replay creates you 503'd; the clients retry if they still want the paste, and a retry is a new id. You do not have their bytes anymore if you never completed the PUT. Do not build a recovery log of request bodies. That is a second bucket.
 
 ## Diagrams
 
@@ -127,6 +147,14 @@ flowchart TB
 
 The right-hand refusals are the overlay. A picture that only says "alert and failover" is the hand-wave.
 
+Caption the first picture: "Bucket down, primary up. Bytes fail; decisions still work." The two dotted arrows from the dead and live stores are the whole overlay: one says what fails, one says what still commits.
+
+Caption the second: "Three refusals and one status." Read the refusals first and the 503 last, so the interviewer hears you rule out the tempting moves before naming the boring right one.
+
+### The error the user reads
+
+A 503 body that says "Not found" or a generic "Something went wrong" makes a creator think their old pastes are gone. Say what the page says: the service is temporarily unable to load or save paste content, existing pastes are safe, try again shortly, with the jittered `Retry-After`. One sentence about copy is a staff signal: you know the status code is half the user experience and the body is the other half.
+
 ## Trade-offs
 
 **Choice.** Treat bucket unavailability as 503 for anyone who needed a byte transferred now. Keep serving fresh edge hits. Allow deletes to commit on the primary and ride the outbox. No local-disk fallback. No 404.
@@ -138,6 +166,8 @@ The right-hand refusals are the overlay. A picture that only says "alert and fai
 **Why not fail the edge closed.** Those hits are correct bytes for a paste that was visible a minute ago. Turning them off makes the outage larger to keep the story uniform. Uniformity is not a user need. A bound of 60 seconds is.
 
 **Why not serve the edge forever.** You would freeze deletes and expirations for the whole outage. A long outage then becomes a correctness bug. Sixty seconds, maybe a deliberate short extension, not "until the bucket comes back" as an unbounded rule.
+
+**Name the refusal inside each alternative.** Against failing the site closed: you refuse to turn off correct edge bytes for the sake of a uniform story. Against serving the edge forever: you refuse an unbounded window in which deletes and expiry stop working, and you notice a bounded `stale-if-error` gets the benefit without the bug, because the origin still answers 404 for gone pastes. Against a local-disk fallback: you refuse a second store that splits from the bucket the moment it returns. Each refusal names the contract line it would bend.
 
 **10× break.** The same overlay at 10× is the same picture with more 503s. The edge has more readers, so the 60-second grace covers more people, and the cliff when max-age ends is steeper. The primary still does not fix bytes. A bigger failure at 10× is only that 3,500 creates/s all 503 and the clients retry together when you recover — a thundering herd of PUTs. The in-flight cap is what keeps recovery from looking like a second incident. You do not need a new component. You need the cap you already have, and maybe a jittered `Retry-After` so the clients do not align. That jitter is the 10× addition. One sentence.
 
@@ -155,7 +185,15 @@ The right-hand refusals are the overlay. A picture that only says "alert and fai
 
 Then stop. One overlay.
 
+**If they ask how many users this hits.** "At peak, about 21,000 failed creates a minute and 870 cold reads a second from the start. Hot reads ramp down over the first minute as edge entries age out, from about 16,500 a second to nearly zero, unless stale-if-error holds them. Deletes all succeed."
+
+**If they ask about extending the edge during the outage.** "I'd configure `stale-if-error` for a few minutes ahead of time. It's safe here because the primary is up: a deleted or expired paste gets a 404 from the origin, which isn't an error, so the edge drops it. Only live pastes whose bytes I can't fetch get the stale copy. If the primary were the one down, I wouldn't trust it."
+
 **If they ask what the user sees in the first minute versus the tenth.** "First minute: hot links work, cold links and creates fail, deletes succeed at the origin. Tenth minute: hot links fail too, because max-age elapsed and you cannot refill. The outbox is deep. Nothing durable was deleted by the outage itself."
+
+## Say this in the room
+
+Bucket down, primary up. Creates fail with 503 inside the 1 second PUT timeout, about 21,000 a minute at peak; I don't write the row, and no one gets a link. Cold reads need the bytes and 503 from the first second, never 404, and never `body_missing` unless the store says the key is gone. Hot reads ramp down over the first minute as edge entries age out, unless `stale-if-error` holds them. That's safe here because the origin still checks the row: a deleted or expired paste gets a 404 and the edge drops it, and only live pastes get the stale copy. Deletes commit, tombstone, 204; detach waits in the outbox, about 210,000 jobs after ten minutes at peak, roughly seven minutes to drain, throttled so the recovering bucket isn't knocked over. No local-disk fallback, no failover of a healthy primary. The error page says the pastes are safe. I page on bucket errors, create 503s, and outbox age, not on 404s.
 
 ## Kit artifact
 
