@@ -98,6 +98,29 @@ Unchanged in shape. Cache, then primary on miss, check `expires_at`, then GET th
 
 The data host loses the NVMe. It is now Postgres only, plus the replica on another host. The app tier is stateless in a way day 8 wanted and could not quite have: any app can PUT and GET. There is no exported directory.
 
+### What the bucket costs on the read path
+
+The body is not in the cache, so **every** read that passes the metadata check is a GET on the bucket. That is 5,800 a second on average and 17,400 at peak. Three consequences you should say before the interviewer finds them.
+
+**Latency.** A local page-cache read was microseconds. A bucket GET's first byte is tens of milliseconds at the median and worse at the tail. Read p99 gets visibly worse the day you move. You accept that for restore; say it as the cost, not a footnote.
+
+**Request rate per key range.** Managed object stores scale request rate by partitioning the key space and publish per-prefix figures in the low thousands of requests a second; they split hot prefixes over time. A step from zero to 17,400 GETs a second on a brand-new prefix can be throttled until the store catches up. Random ids after `pastes/` let it split evenly; ramp traffic during the migration rather than flipping it. And a viral paste is now a **hot object**: 8,700 GETs a second on one key is the shape object stores like least. That is a day 15 argument arriving early.
+
+**Money, in the right order.** At list prices of roughly $0.0004 per thousand GETs and $0.023 per GB-month (check current pricing; the ratio is the point), about 500 million GETs a day is around $200 a day, roughly $6,000 a month. 4.5 TB stored is around $100 a month. PUTs at 10 million a day are around $50 a day. At a 10 KB mean, **request charges dwarf storage by more than an order of magnitude.** A staff answer notices that the bill is driven by the read ratio, not the terabytes, which is another reason bytes for hot pastes should stop coming from the bucket.
+
+### Getting 450 million files into the bucket
+
+The move itself is a design, and it is where people lose pastes. Order:
+
+1. **New writes go to the bucket first.** Creates PUT and insert as above. From this moment the NVMe only shrinks.
+2. **Reads try the bucket, then fall back to the NVMe.** A miss in the bucket for a live row reads the old path. Only when both miss is it `body_missing`.
+3. **Backfill by walking the rows, not the directory.** For each live row, copy the file if the object does not exist. Keyed by id, resumable, throttled. At 2,000 PUTs a second it is about 225,000 seconds, roughly 2.5 days for 450 million objects. Expired rows are skipped, so the backfill gets smaller while it runs.
+4. **Verify, then cut the fallback.** Sample rows, confirm the object exists and the size matches `size_bytes`. Remove the NVMe fallback. Keep the disk for a week, read-only, as the undo button.
+
+Doing step 4 before step 3 finishes turns live links into 500s. Doing step 2 without step 1 means new pastes still land on the disk you are trying to retire.
+
+What staff sounds like here is answering the question they asked, restore, with the cost they did not ask about, read latency and request spend, and then the migration nobody draws. The interviewer hears that you know a storage move is a project with an order, not a box swap.
+
 ### What stays out of the object
 
 The row, the token hash, the secondary index, the cache. Analytics. A public HTML rendering. The object is the bytes and nothing else. Content-type on the object, if you set one, is `text/plain`. You still override on the way out and set `nosniff`, so a stored header cannot turn the paste into a page.
@@ -136,6 +159,22 @@ flowchart LR
 
 If a design treats both as 404, it will reap the wrong one and hide the other.
 
+Caption: "Orphan is waste, reaped by age. Missing body is loss, paged." The two arrows point at different teams' problems: one is a cost line, the other is an incident. Say which is which before anyone asks.
+
+Caption for the write-order sequence: "PUT ack is the new fsync; the insert is still the commit point." Draw the `alt` box exactly where the insert returns, so the orphan visibly belongs to the failure branch and never to the 201 branch.
+
+## Failure the user sees, with the bytes in a bucket
+
+**A PUT times out.** The user gets an error, retries, and gets a new link. The timed-out object may exist as an orphan. Nobody can read it. The reaper takes it after an hour.
+
+**The bucket is slow.** Creates slow by however long the PUT takes; reads slow by however long the GET takes. App processes hold more requests in flight, and the per-process ceiling from day 8 is reached at lower QPS because each request lives longer. Users see slow pages everywhere, not errors, until timeouts fire. Day 20 bounds it.
+
+**The bucket throttles one hot object.** Readers of the viral paste get errors or slow responses while every other paste is fine. The metadata cache does nothing for it. This is the user-visible reason day 15 exists.
+
+**The bucket is unavailable.** Creates fail: no PUT ack, no row, no link. Every read of a live row fails with 500, including hot links, because the cache holds metadata, not bytes. Deletes still work: the row goes, the object delete is retried later. That whole picture is day 25. Today, say that the bucket is now on every read and every create.
+
+**A migration cut over early.** Live rows whose objects were never copied return 500 with `body_missing`. That is why the fallback stays until verification passes.
+
 ## Trade-offs
 
 **Choice.** Private bucket, key equals id, PUT then insert, 201 after both, reaper with a one-hour age floor, row deleted before the object on the way out.
@@ -145,6 +184,8 @@ If a design treats both as 404, it will reap the wrong one and hide the other.
 **What you give up by choosing the bucket.** A single-machine crash story you could draw with one disk. PUT latency is now on the create path, a network hop with a planning round trip you should state (tens of milliseconds, not the 5 ms local fsync). You take a dependency on a store you do not fsync yourself. You take orphans as a normal failure, not as a bug you are surprised by. You take the bill for 4.5 TB plus PUT/GET requests, which at this size is not the thing that changes the design, and you say so rather than pretending it is free.
 
 **Why not the volumes, as the first move.** Volumes fix restore and keep you on a disk you run. They add compaction, a crash window inside a file, and a row format change. The bucket is the smaller interview design at 10 KB mean and 1 MB cap, and it is the one that lets every app process see every byte without a shared filesystem. Take volumes if they forbid a managed object store or if the mean size is so small that per-object overhead dominates and you have measured it. You have not measured it. Do not invent a packing layer to sound careful.
+
+**Name the refusal inside each alternative.** Against packed volumes: you refuse compaction and an offset format change to save per-object overhead you have not measured. Against a public bucket: you refuse to let expiry and delete become optional. Against long signed URLs: you refuse a capability that outlives the delete. Against multipart: you refuse a multi-request crash window for bodies capped at 1 MB. Each refusal names the contract line it would put at risk.
 
 **10× break.** Ingest becomes ~1 TB/day and ~45 TB resident, ~4.5 billion objects. PUT bandwidth is still only tens of MB/s. The break is **listing, inventory, and a reaper that scans**. Key-directed reaping from a failure log still works. A design that lists the bucket to expire will not finish. The metadata primary's commit rate breaks earlier than the bucket's byte rate (day 24). Do not "shard the object store" in the abstract. You are not operating its internals.
 
@@ -162,7 +203,17 @@ If a design treats both as 404, it will reap the wrong one and hide the other.
 
 **If they ask about encryption.** TLS in transit. Server-side encryption on the bucket as a default, not a box you draw. The delete token is still a hash in the row, not an object. End-to-end encryption remains a non-goal.
 
+**If they ask what this costs.** "At list prices the GETs dominate: roughly 500 million a day is around $6,000 a month, against about $100 for 4.5 TB stored. The read ratio drives the bill, not the terabytes. That's a reason to keep hot bytes off the bucket."
+
+**If they ask how you migrate.** "New writes to the bucket first. Reads try the bucket, fall back to the disk. Backfill by walking live rows, not the directory, about two and a half days at 2,000 PUTs a second. Verify a sample, then remove the fallback, and keep the disk read-only for a week."
+
+**If they ask what happens to read latency.** "It gets worse. A page-cache hit was microseconds; a bucket GET is tens of milliseconds to first byte. I'm trading read p99 for restore, and I'd say that to whoever owns the latency SLO."
+
 **If they ask what you page on.** PUT error rate. Reaper deleting zero objects while the orphan log grows. `body_missing` above zero. Bucket size versus the 4.5 TB mix, and the 365-day share, same alarm as the disk headroom on day 5. Not 404s.
+
+## Say this in the room
+
+The break is restoring 450 million small files, and one NVMe being the only copy. Key is the id, bucket is private, PUT then commit the row, 201 only after both. The PUT ack replaces group commit, so the 200-a-second fsync ceiling is gone; peak ingest is about 3.5 MB/s. A failed insert leaves an orphan I reap after an hour with no row, from a failure log, never by listing 450 million keys. A live row with no object is a 500 and a page. Delete removes the row first, then the object. The cost moves to reads: every read is now a bucket GET, tens of milliseconds to first byte, and at list prices about 500 million GETs a day dwarfs the storage bill. A viral paste is a hot object the bucket will throttle. I migrate with new writes first, a read fallback, a row-driven backfill of about two and a half days, and a verified cutover. This is not because 10 KB is large. It's because the directory is the outage.
 
 ## Kit artifact
 
