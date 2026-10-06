@@ -104,7 +104,40 @@ The user waited through step 9. Everything you were tempted to call async on cre
 3. 204. The user is done.
 4. A worker drains the outbox, deletes the object, purges the CDN. Twice is safe. Until purge or max-age, an edge may still serve the body. Origin GETs 404.
 
+**Make step 1 and step 2 one statement.** "Look up, compare the token hash, then delete" in two round trips lets two concurrent deletes both pass the check. Do it as one conditional delete on the primary: delete the row where the id matches, the token hash matches, and `expires_at` is in the future, returning whether a row went. Zero rows is the 404, whichever of the three reasons it was. The outbox insert rides the same transaction. One statement closes the race and keeps the three 404 reasons indistinguishable, which the contract wanted anyway.
+
+**The window between commit and tombstone.** The row is gone before the tombstone lands, by a millisecond or so. A reader whose metadata is a cache hit in that window still gets a 200. Name it as the smallest stale window in the system and move on; it is narrower than the edge's 60 seconds by four orders of magnitude.
+
 **What never appears.** The replica, on all three sequences, except that the insert's WAL will ship after the commit, off to the side, not as a step the user waits for. The sweeper, which is a batch on the primary or a candidate scan on the replica with the delete on the primary, then the same detach job. Mention it if they ask who deletes expired objects. Do not put it inside the GET story. GET already enforced expiry.
+
+### Branch frequencies and latency, so the order has weight
+
+At the day 21 assumptions, of 17,400 peak reads: about **16,530** end at the edge, about **783** are origin reads with a metadata hit, and about **87** go all the way to the primary. With the edge cold: none at the edge, about **15,660** metadata hits, about **1,740** primary reads. Say the branch with its count. "Some reads hit the primary" is vague; "87 a second at the assumptions, 1,740 with the edge cold" is the answer.
+
+Latency by branch, as planning numbers you can be wrong about:
+
+| Branch | Steps the reader waits on | Rough p50 at the origin |
+|---|---|---|
+| Edge hit | reader to nearest edge | origin adds nothing |
+| Edge miss, metadata hit | edge to app, cache get, bucket GET | about 30 to 50 ms, mostly the bucket |
+| Both miss | the above plus a primary read | a few ms more |
+| Create | limiter, PUT, insert, commit | about 50 to 100 ms, mostly the PUT |
+
+The lesson in the table: the **bucket** is the slowest step on every origin path, and the **primary** is the most fragile. Removing the primary read from a path barely changes its latency. Removing the bucket from a path, which only the edge does, changes everything. When the interviewer asks "how would you make reads faster," the honest answer is the edge hit rate, not a faster database.
+
+### What each dependency's death does to each path
+
+| Dead | Edge hit | Miss, meta hit | Both miss | Create | Delete |
+|---|---|---|---|---|---|
+| CDN | goes to origin | works | works | works | works, purge fails, no edge to purge |
+| Cache | works | becomes both miss | works, slower | works; limiter fails open | works; tombstone missing, late-fill race reopens |
+| Primary | works | works | 500 | 500 | 500 |
+| Bucket | works | 500 | 500 | 503 | works; object delete queued |
+| Queue | works | works | works | works | works; detach waits in the outbox |
+
+Every cell is a sentence the user would feel. Two reads off the table are worth saying unprompted: the **edge hit survives every dependency**, and the **delete survives everything except the primary**. Day 25 takes one row of this and does it properly.
+
+What staff sounds like here is narrating with weights. The order of steps is table stakes; the staff signal is attaching a count and a latency to each branch and knowing which dependency each branch can survive. The interviewer who said "I want the order" is listening for whether you know which order runs most often.
 
 ## Diagrams
 
@@ -168,6 +201,20 @@ sequenceDiagram
 
 Draw these as two pictures on paper, with a gap between them. The gap is the point of the day.
 
+Caption the read: "Four exits: edge 200, 404, origin 200, 500. The primary sits on one branch of one branch." Write the branch counts, 16,530 / 783 / 87, in the margin beside each `alt`.
+
+Caption the write: "201 after commit. 204 before detach. The worker is below a line the user never crosses." Draw a horizontal line under the 204 and label it "user is gone." Everything under it is copies being removed.
+
+## Failure the user sees, path by path
+
+**Reader of a hot link.** Sees a 200 from the edge through any single dependency's death. The worst case is a CDN outage, which turns the hot link into an origin read that day 15 said one NIC cannot carry.
+
+**Reader of a cold link.** Needs the app, the bucket, and either the cache or the primary. Bucket dead: 500. Primary dead: 500 on a metadata miss, 200 on a hit. Never 404 for an outage.
+
+**Creator.** Needs the limiter's verdict (fails open), a PUT, and a commit. Bucket dead: 503 before anything is written. Primary dead: 500 after the PUT, with an orphan for the reaper. Never a 201 for a paste that is not durable.
+
+**Deleter.** Needs only the primary to commit. Everything else, object, purge, can lag. The bound they experience is the edge's max-age: a reader somewhere may see the paste for up to a minute after the 204.
+
 ## Trade-offs
 
 **Choice.** Two sequences. The read can end at the edge, at a 404, at a 500, or at a 200. The create has one legal ack point. The delete acks before detach.
@@ -175,6 +222,8 @@ Draw these as two pictures on paper, with a gap between them. The gap is the poi
 **Alternative.** One diagram with every tier and a single arrow labeled "read/write."
 
 **What you give up.** The comfort of one picture you can point at and say "the architecture." You will redraw two shorter ones under questions. You gain the ability to answer "does this read hit the primary?" with a condition instead of a yes.
+
+**Name the refusal inside the alternative.** Against the single diagram: you refuse a picture that cannot say which reads touch the primary, and that forces "the site is down" when one dependency dies. Against narrating "async" without an owner: you refuse a word that hides whether the user is waiting. Against a two-statement delete: you refuse a check-then-act race on the one path where the token is the only authority. Each refusal names a question the interviewer could no longer answer.
 
 **10× break.** The sequences do not change at 10×. The **branch frequencies** do. If the edge assumption holds, most reads take the first branch and the primary barely appears. If it does not, almost every read takes the miss branch and the fill cap sheds. The order of the create does not get a shortcut at 10×: you still cannot 201 before the PUT. An interviewer who asks "what would you async to survive 10×?" is asking you to move the ack. You refuse. The thing that breaks is the commit rate, which is the next day, not the order of these arrows.
 
@@ -190,7 +239,17 @@ Draw these as two pictures on paper, with a gap between them. The gap is the poi
 
 **If they ask you to merge them.** "I'll keep two. The failure questions are different. A dead bucket stops creates and cold reads, and does not stop an edge hit. One picture makes me say the site is down."
 
+**If they ask which reads touch the primary.** "At my assumptions, about 87 a second at peak: edge miss and metadata miss. With the edge cold, about 1,740. With both cold, all 17,400, and the fill cap sheds."
+
+**If they ask how to make reads faster.** "The bucket is the slow step on every origin path, 30 to 50 ms. The primary read is a few ms. The only thing that removes the bucket from a read is an edge hit, so the lever is the edge hit rate, not the database."
+
+**If they push on two concurrent deletes.** "It's one conditional delete: id, token hash, and not expired, in one statement with the outbox insert. One wins, the other gets zero rows and a 404."
+
 **If they ask where the replica is.** "Off this narration. WAL shipping after commit. Promotion is a failure overlay, not a step in a healthy GET."
+
+## Say this in the room
+
+Read first. A fresh edge copy returns 200 and the origin never sees it; at my assumptions that's about 16,500 of 17,400 peak reads. On an edge miss, the app checks the metadata cache: a tombstone or a past `expires_at` is a 404 without touching the primary; a live entry means a bucket GET and a 200, or a 500 if the object is gone. Only a metadata miss reads the primary, about 87 a second, under the fill cap, then fills with a jittered TTL. The bucket is the slow step on every origin path; the primary is the fragile one. Create: size, limiter, slots, validate, mint, PUT, commit, then 201, and nothing before the commit is a link. Delete: one conditional delete with the outbox row, the tombstone, 204; the worker removes the object and purges later, and an edge may serve it for up to a minute. The edge hit survives every dependency; the delete survives everything but the primary. The replica isn't on any of these paths.
 
 ## Kit artifact
 
