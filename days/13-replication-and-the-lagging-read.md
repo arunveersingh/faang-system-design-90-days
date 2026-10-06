@@ -95,6 +95,24 @@ Primary dies.
 3. Apps are pointed at the new primary. You need this switch to exist: a config or a proxy, not a hard-coded host on four app boxes that you redeploy by hand during the incident. One sentence. Do not design the control plane.
 4. The old primary, if it returns with a split brain, must not accept writes. Fencing is the word. You do not explain STONITH for ten minutes. You say: a promoted replica is the only writer, and the old primary is not allowed back without a rebuild.
 
+### The window and the tail, in numbers
+
+**RPO as a count of links.** Async lag is usually well under a second on a healthy pair in one region. At peak writes of 350 a second, every second of lag at the moment of death is about 350 pastes that returned 201 and will 404 after promotion. At the 5 second lag alarm you would page on, that is about 1,750 links. At average traffic, about 116 per second of lag. Say the RPO as links that break, not as a duration; it is what the interviewer will ask next.
+
+**The 30 seconds, decomposed.** Detection plus promotion plus repointing. Detection is a health check with a miss threshold: checks every 5 seconds, declared dead after three misses, about 15 seconds. Promotion and repointing the apps, about 10 to 15 more. Shorter detection is a real choice with a real cost: a two-miss threshold on a 2 second check promotes on a network hiccup, and a false promotion is how you get two primaries. You trade a longer write outage for fewer split-brain events, and for a pastebin you take the longer outage.
+
+**What the window costs users.** At peak, 30 seconds of failed creates is about 10,500 creates (350 × 30). Reads are mostly fine for hot links on cache hits; cold links get 500. Deletes fail and must be retried by the user, which is the worst UX in the window because the person deleting is usually in a hurry.
+
+**Shipping is not the bottleneck; apply is.** Each create writes a row and an index entry, a few hundred bytes to a kilobyte of WAL. At 350 a second that is well under 1 MB/s on the wire. The replica replays that WAL with essentially one process. At 1× it keeps up trivially. At 10× the replay, not the network, is what turns lag into a backlog.
+
+**Sync is cheaper in latency than people think, and more expensive in availability.** A same-region round trip is a fraction of a millisecond, small next to the body fsync. The real price of sync is coupling: the replica's health becomes a create dependency. That is the sentence to say when the interviewer pushes on sync, because "it adds latency" is the weak reason and they know it.
+
+### The old primary comes back
+
+It holds the unshipped tail: rows that got a 201 and never reached the new primary. You do not merge them back during the incident. You rebuild the old node as a replica of the new primary, which discards that tail from the database, and you keep a copy of the discarded WAL so someone can decide later whether those pastes are worth restoring. Say "discard and record, reconcile later if at all." Merging two primaries' histories on the fly is the split brain you fenced against.
+
+What staff sounds like here is pairing every replication word with a user count. "Async" comes with "about 350 links per second of lag." "Failover" comes with "30 seconds, about 10,500 failed creates at peak, hot reads still served." "Sync" comes with "the replica becomes a create dependency." The interviewer is not grading whether you know the modes. They are grading whether you price them.
+
 Bodies during this window still live on the old data host's NVMe. If that host is what died, promotion of Postgres does not bring the bytes back. Reads of live rows 500 with `body_missing`. This is why the replica was not the durability story for the product. It was the durability story for the **rows**. The next day is the bytes. Do not skip ahead inside this drawing by magically moving `/data`.
 
 ## Diagrams
@@ -110,6 +128,8 @@ flowchart LR
   replica -.->|not the GET fill| banned[Stale row would stick in cache]
 ```
 
+Caption it: "Writes and misses to the primary. Replica takes WAL, not reads." The dotted arrow to the banned box is the decision. If you erase it, the next person to look at the drawing will add the replica as a read source, because that is what replicas look like they are for.
+
 ### Primary disk dies
 
 ```mermaid
@@ -124,6 +144,18 @@ flowchart TB
 
 The bottom arrow is the one candidates drop. Postgres replication did not save the file.
 
+Caption: "Rows survive with an RPO of the unshipped tail. Bytes do not survive at all." Two different RPOs on one drawing. Say both, in that order, and the interviewer hears that you know which loss is bigger.
+
+## Failure the user sees, with a replica
+
+**Primary dies, data host survives (process or Postgres crash only).** Detection and promotion, about 30 seconds. Creates and deletes fail. Hot cache hits serve; cold reads 500. After promotion, the unshipped tail, a few hundred links per second of lag, 404. Bodies are still on the NVMe, so every row that made it reads normally.
+
+**Data host dies (disk and Postgres together).** Same 30 seconds of write outage, same unshipped tail. Then every read of a live row whose body was on that NVMe returns 500 with `body_missing`. The replica turned "everything is gone" into "every row survives and none of the bytes do." That is the worst user experience on this page: links that look alive and fail. It is also why day 14 exists.
+
+**Replica dies.** Users see nothing. You have silently gone back to one copy of the rows. Page on it as a durability incident, not an availability one, because nothing will look wrong until the primary also fails.
+
+**Replica lags past the alarm.** Users see nothing, because no interactive read uses it. RPO has grown to "the lag chart." This is the case for keeping the replica off the read path: lag stays an RPO problem and never becomes a correctness problem.
+
 ## Trade-offs
 
 **Choice.** One async replica. 201 does not wait for it. GET misses and all writes use the primary. Replica is for promotion and for row survival. RPO is the unshipped tail.
@@ -137,6 +169,8 @@ The bottom arrow is the one candidates drop. Postgres replication did not save t
 **Alternative B.** Serve cache misses from the replica to scale reads.
 
 **Why you refuse B.** Delete and the moment after create are exactly the reads that cannot lie, and the cache will freeze whatever the replica got wrong. You already added cache-aside so the primary would not see the full 17,400. Using the replica as a second cache source reintroduces the lie the primary was kept for.
+
+**Name the refusal inside each alternative.** Against sync (A): you refuse to make the replica's health a create dependency to tighten the RPO on the smaller loss while the body RPO is still "everything." Against replica reads (B): you refuse to let lag turn into a delete that comes back for a TTL. Against "zero-downtime failover" as a claim: you refuse a two-miss detection threshold that trades a 30 second outage for split-brain risk. Each refusal names which loss, or which lie, it would buy.
 
 **10× break.** ~3,500 commits/s have to ship. Async replication lag becomes a backlog, not a few seconds, if the replica cannot apply WAL that fast. Then your RPO stops being "a moment" and becomes "the lag chart." The fix is a primary that can commit and a replica that can keep up, or sharding, not pointing readers at the lag to make the chart look less embarrassing. Read scale at 10× is still the cache and, later, the CDN. It is not this replica.
 
@@ -154,7 +188,17 @@ The bottom arrow is the one candidates drop. Postgres replication did not save t
 
 **If they ask about read-your-writes.** The creator does not read. A friend who gets the link immediately could miss if you had sent them to a replica. You did not. The primary has the row before the 201, so the friend's GET misses, reads the primary, and sees it. That is the property you kept by refusing the lagging read.
 
+**If they ask how many pastes you lose on failover.** "Lag times write rate. At 350 a second and sub-second lag, a few hundred links that got a 201 and now 404. At my 5 second alarm, about 1,750. That's the async price, and I'd say it to the product owner before launch."
+
+**If they ask why not detect faster.** "I can, and I'd promote on network blips. A false promotion is two writers. For a pastebin I'd rather fail creates for 30 seconds than reconcile two histories."
+
+**If they ask what happens to the old primary's extra rows.** "Rebuild it as a replica of the new primary, keep the discarded WAL, and decide later whether those pastes are worth restoring. I don't merge during the incident."
+
 **If they ask what you page on.** Replica lag in seconds, past a bound you name (start at 5 seconds, change it when you have a chart). Replication broken. Failover longer than the window you told them. `body_missing` after a promotion, which means the row moved and the file did not.
+
+## Say this in the room
+
+One async replica, different host and disk, same region. The 201 waits for the local commit, not the replica, so the RPO is the unshipped tail: at 350 writes a second, every second of lag is about 350 links that 404 after promotion, and I page at 5 seconds. Sync would cost a fraction of a millisecond and make the replica a create dependency; I'm not paying that while the bodies still have an RPO of everything. GET misses, inserts, and deletes stay on the primary. I won't fill the cache from the replica, because a lagging delete would become a 200 for a full TTL. Failover is about 30 seconds: 15 to detect, the rest to promote and repoint. Creates fail, about 10,500 at peak, hot hits serve, cold reads 500, never 404. The old primary is fenced and rebuilt, its tail recorded, not merged. And this replica doesn't contain the NVMe: if the data host dies, every row survives and every body is gone. That's tomorrow.
 
 ## Kit artifact
 
