@@ -102,6 +102,38 @@ This saga exists because they forced the key onto another service. Every create 
 
 You do not draw a saga framework, an orchestrator product, or a workflow engine. The orchestrator can be the app process plus a sweeper over `pending` keys older than a minute. If the app dies, the sweeper is the orchestrator. If only the app remembers the saga, a crash loses the compensation. State lives in K, in the pending row, not in memory.
 
+
+### Staff depth: the undo you must not run while blind
+
+A saga is what you build when colocation is forbidden. Leading with a saga when the key could sit on the paste shard is choosing a crash window for style. Staff recommends colocation first, then names the saga cleanly.
+
+**Pending is not failed.** About 350 × 2 s = **700** healthy in-flight pendings at peak. The sweeper's abort set is pending **older than 1 minute** — thirty times the create budget — and only after reading shard P. If P is unreachable, leave pending. Aborting 21,000 stuck keys after a one-minute create outage without checking P is 21,000 chances to free a key whose paste commit is in flight, then 21,000 retries that mint a second paste.
+
+**Forbidden compensation.** Key still `pending`, paste row committed on P, recovery cannot see P: must not delete the paste. Finishing `done` when P is visible is the fix. Deleting because "pending looks unfinished" is data loss and a duplicate on retry.
+
+**201 is the last step.** Never return the id at step 4. The client holding a link you might still compensate is how you create support tickets that look like random 404s after success.
+
+**Orchestrator state.** Lives in the pending row on K, not in the app process. If only memory remembers the saga, a crash loses compensation. The sweeper is the orchestrator when the app dies.
+
+**Compare cost.** Day 37: one commit, existing reaper. Saga: three local commits, recovery sweeper, forbidden undo, minute-scale careful window. Take the saga when another team's database owns the key. Do not take it to look distributed.
+
+What staff sounds like: writing the forbidden undo on the board before the happy path, sizing the pending-age alert, and still asking to put the key back on the paste shard.
+
+
+### Staff depth: compensation that cannot see
+
+Colocation remains the recommendation. This saga exists for a forced key service. Staff writes the forbidden undo before the happy path: never delete a paste because the key is still `pending` when you cannot read shard P.
+
+**Window sizing.** Healthy saga finishes inside the 2-second create budget → ~350×2 = **700** pendings in flight at peak. Abort threshold **1 minute** (30× the budget). A create outage of one minute grows ~**21,000** pending rows. Aborting that set without reading P frees keys whose paste commits are about to land, then mint duplicates on retry.
+
+**Step failures.** Step 4 fails → abort key, reap with age floor if PUT uncertain. Step 5 fails → paste exists; recovery reads P and marks done — never compensate step 4. Uncertain PUT → age floor before reap; saga does not repeal day 27.
+
+**201 last.** Returning the id at step 4 lets the client hold a link you might still reap. Response after `done` only.
+
+**Two sweepers.** Both read P, both try `WHERE state='pending'`; one wins. Safe. The unsafe race is abort while blind.
+
+**Orchestrator.** State in the pending row on K. App memory is not a saga store.
+
 ## Diagrams
 
 ### The undo you must not run
@@ -118,6 +150,16 @@ flowchart TB
 
 The bottom branch is the compensation that fires while blind.
 
+
+Caption: "Top branch finishes done; bottom branch deletes a commit it cannot see."
+
+## Failure the user sees
+
+**Client timeout after paste commit before done.** Retry recovers; same 201.
+
+**Blind abort during P outage.** Key freed; paste lands; retry creates second paste. Two links. The 1-minute + read-P rule prevents this.
+
+**Return id early, then compensate.** Bookmarked link 404s after apparent success.
 ## Trade-offs
 
 **Choice.** If the key service is forced: pending, PUT, paste insert, mark done. Recovery reads the paste shard before it aborts. Never delete a paste whose key is merely not `done`. Prefer colocation when you have a choice.
@@ -125,6 +167,8 @@ The bottom branch is the compensation that fires while blind.
 **Alternative.** Two-phase commit between K and P, or colocation.
 
 **What you give up.** A single commit, a simple retry, and the right to reap aggressively. You gain a design that survives a team boundary. You take a window, up to about a minute, where a key is pending and a sweeper must be careful. The user who did not receive 201 must not receive a second paste.
+
+**Name the refusal inside each alternative.** Against leading with a saga when colocation is possible: you refuse a crash window for style. Against aborting pending when P is down: you refuse destroying evidence of a commit. Against returning 201 before done: you refuse a link you might still reap. Against orchestrator state only in memory: you refuse lost compensation on crash. Against treating pending as failed at 2 seconds: you refuse aborting in-flight creates.
 
 **10×.** The saga's cost is operational, not QPS. More creates mean more pending rows in that minute. The forbidden compensation gets more tempting because the pending-age alert is louder. The fix is still "look at P before you undo," not a faster abort.
 
@@ -136,9 +180,25 @@ The bottom branch is the compensation that fires while blind.
 
 **If they ask whether the PUT is a saga step.** Yes. It already was, before this interview. The reaper is the compensation, the age floor is the "do not undo too soon" rule, and the 201 comes after the row commit so the client never holds an id you might still reap. Today you added a second database to that story. The discipline is the same.
 
+**If they ask how many pendings are normal.** "About 700 at peak inside a 2-second budget. I abort only after a minute, and only after I read the paste shard."
+
+**If they ask what they must not undo.** "A paste whose key still says pending when I cannot see the paste shard. I wait."
+
 ## Say this in the room
 
-I would still colocate the idempotency key with the paste. If I cannot, create is a saga: mark the key pending with the minted id, PUT the object, commit the paste, then mark the key done and only then return 201. If the paste commit fails I abort the key and reap, and if it succeeded but the done-mark did not, recovery reads the paste shard and finishes the mark. It must not delete the paste because the key still says pending, and if it cannot see that shard it waits. A compensation that runs while blind will destroy a commit and let the retry create a second paste.
+I would still colocate the idempotency key with the paste. If I cannot, create is a saga: mark the key pending with the minted id, PUT the object, commit the paste, then mark the key done and only then return 201. Healthy pendings are about 700 at peak; I abort only after a minute and only after reading the paste shard — a one-minute create outage can leave about 21,000 pendings, and aborting them blind is how I mint duplicates. If the paste commit fails I abort the key and reap with the age floor; if it succeeded but done did not, recovery finishes the mark. It must not delete the paste because the key still says pending, and if it cannot see that shard it waits. A compensation that runs while blind will destroy a commit and let the retry create a second paste.
+
+### Pending-age alert card
+
+| Signal | Meaning | Action |
+|---|---|---|
+| Oldest pending < 2s | Healthy in-flight | None |
+| Oldest pending 2s–60s | Slow creates | Watch P and bucket |
+| Oldest pending > 60s | Recovery territory | Read P before abort |
+| Pending count climbing at ~350/s | Creates stuck | Page; do not mass-abort |
+
+Mass-abort without P is the duplicate generator. The alert exists to slow humans down.
+
 
 ## Kit artifact
 
