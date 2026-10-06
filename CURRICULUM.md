@@ -1,10 +1,10 @@
 # Curriculum
 
-> **This is the map, not today's lesson.** Days 1–49 are written. Start at [Day 1](days/01-what-the-interview-is-grading.md). Days 50–90 are titles until a page exists.
+> **This is the map, not today's lesson.** Days 1–77 are written. Start at [Day 1](days/01-what-the-interview-is-grading.md). Days 78–90 are titles until a page exists.
 
 Interview-depth system design for senior and staff loops. One day, one sitting. Pure distributed systems: no AI or ML lessons.
 
-This file is the 90-day assignment list, adapted from the course topic list for this repo. **Phase 1 (days 1–7), Phase 2 (days 8–28), and Phase 3 (days 29–49) are written** under `days/`. Days 50–90 are assigned below and are not in the repo yet. Do not treat a title as a lesson until a page exists.
+This file is the 90-day assignment list, adapted from the course topic list for this repo. **Phase 1 (days 1–7), Phase 2 (days 8–28), Phase 3 (days 29–49), and Phase 4 (days 50–77) are written** under `days/`. Days 78–90 are assigned below and are not in the repo yet. Do not treat a title as a lesson until a page exists.
 
 Problem pages under [`prompts/`](prompts/README.md) are the problem bank. The folder is still named `prompts/`. If a problem file is updated, **the problem file wins** over a title here. Read the problem page on this site before a mock.
 
@@ -96,41 +96,40 @@ Guarantees, keys, and the failure you accept. The pastebin is still the worked e
 
 ## Phase 4 — Product-shaped systems (Days 50–77)
 
-**Coming. Not written.** These rows are titles only. They are not links, so there is no empty page to open.
-
+**Written.** Open each day under `days/` in order. Days 63 and 77 are closed-book mocks.
 
 One product a day, or a variant whose failure mode is new. Inventory on day 49, assigned seats on day 61, and a flash-sale queue on day 70 are three different problems. Ranking models stay out.
 
 | Day | Title | Type | Intent |
 |---|---|---|---|
-| 50 | URL shortener | Lesson | Facing a redirect path, leave able to design create and redirect so a hot link cannot pin one row or one cache key. |
-| 51 | News feed | Lesson | Facing a home feed, leave able to choose fan-out-on-write or fan-out-on-read from follower skew, with ranking models left out. |
-| 52 | Celebrity fan-out | Lesson | Facing one author with a huge audience, leave able to hybrid-fan-out so a single post cannot stampede storage or the online cluster. |
-| 53 | One-to-one chat | Lesson | Facing two people messaging, leave able to keep per-conversation order, receipts, and offline catch-up without a global total order. |
-| 54 | Large-room chat | Lesson | Facing a huge room, leave able to serve history and fan-out without copying every message to every member on the send path. |
-| 55 | Notifications | Lesson | Facing a user who is not in the app, leave able to design push plus an inbox with preferences, dedupe, and a dead provider. |
-| 56 | Typeahead | Lesson | Facing a prefix box, leave able to serve suggestions from a popularity-biased index and bound how stale a suggestion may be. |
-| 57 | Product search | Lesson | Facing catalog search rather than a prefix, leave able to query an inverted index with facets and explain lag after a write. |
-| 58 | Video on demand | Lesson | Facing a long video, leave able to take upload through transcode to CDN playback without bytes sitting on the app tier. |
-| 59 | Live video | Lesson | Facing a live stream, leave able to ingest with adaptive bitrate and survive the stampede when the stream starts. |
-| 60 | Nearby | Lesson | Facing "what is near me," leave able to index points, bound staleness, and avoid leaking a precise location. |
-| 61 | Ticket booking | Lesson | Facing assigned seats, leave able to hold specific seats with a TTL so you neither oversell nor lock the whole venue. |
-| 62 | Metrics ingestion | Lesson | Facing a firehose of measurements, leave able to ingest points with a cardinality limit so one tenant cannot blow the store. |
-| 63 | Mock: job scheduler | Mock | Facing an unseen problem, leave able to design a job scheduler with leases, missed fires, and duplicate runs, not this week's search, video, location, ticket, or metrics lessons. |
-| 64 | Metrics query and alerts | Lesson | Facing graphs and pages rather than ingest, leave able to query downsampled series and stop one alert rule from paging on every blip. |
-| 65 | Payments | Lesson | Facing money movement, leave able to authorize and capture against an idempotent ledger so a retry cannot move money twice. |
-| 66 | Payment reconciliation | Lesson | Facing a provider and a ledger that disagree, leave able to find the mismatch and repair it without a silent rewrite of history. |
-| 67 | Collaborative document | Lesson | Facing two editors in one document, leave able to persist concurrent edits and presence and say what you do when they diverge. |
-| 68 | File sync | Lesson | Facing folders that must match across devices, leave able to sync chunks, resolve conflicts, and survive a client clock that lies. |
-| 69 | Cart and checkout | Lesson | Facing a purchase, leave able to snapshot price and hold stock so a retry cannot double-charge or double-commit inventory. |
-| 70 | Flash sale | Lesson | Facing an arrival spike on scarce stock, leave able to queue buyers with a fairness rule instead of letting them pile onto the database. |
-| 71 | Social graph | Lesson | Facing follow and block, leave able to store the graph so a privacy check stays correct on the read path. |
-| 72 | Ephemeral stories | Lesson | Facing posts that must disappear, leave able to fan them out with a TTL that is real in storage and caches, not only in the UI. |
-| 73 | Web crawler | Lesson | Facing the public web as input, leave able to run a polite frontier with dedupe and freshness so one host is not melted. |
-| 74 | Order book | Lesson | Facing buy and sell orders, leave able to match one instrument on a single sequence and rebuild the book after the matcher crashes. |
-| 75 | Feature flags | Lesson | Facing a risky rollout, leave able to serve a flag or kill switch at low latency and bound how stale a client may be. |
-| 76 | Audit log | Lesson | Facing "who did that," leave able to append a queryable activity log with retention and a tamper claim you can actually keep. |
-| 77 | Mock: email inbox | Mock | Facing an unseen product, leave able to design a large email inbox (ingest, folders, search, attachments), not this week's graph, stories, crawler, book, flags, or audit lessons. |
+| 50 | [URL shortener](days/50-url-shortener.md) | Lesson | Facing a redirect path, leave able to design create and redirect so a hot link cannot pin one row or one cache key. |
+| 51 | [News feed](days/51-news-feed.md) | Lesson | Facing a home feed, leave able to choose fan-out-on-write or fan-out-on-read from follower skew, with ranking models left out. |
+| 52 | [Celebrity fan-out](days/52-celebrity-fan-out.md) | Lesson | Facing one author with a huge audience, leave able to hybrid-fan-out so a single post cannot stampede storage or the online cluster. |
+| 53 | [One-to-one chat](days/53-one-to-one-chat.md) | Lesson | Facing two people messaging, leave able to keep per-conversation order, receipts, and offline catch-up without a global total order. |
+| 54 | [Large-room chat](days/54-large-room-chat.md) | Lesson | Facing a huge room, leave able to serve history and fan-out without copying every message to every member on the send path. |
+| 55 | [Notifications](days/55-notifications.md) | Lesson | Facing a user who is not in the app, leave able to design push plus an inbox with preferences, dedupe, and a dead provider. |
+| 56 | [Typeahead](days/56-typeahead.md) | Lesson | Facing a prefix box, leave able to serve suggestions from a popularity-biased index and bound how stale a suggestion may be. |
+| 57 | [Product search](days/57-product-search.md) | Lesson | Facing catalog search rather than a prefix, leave able to query an inverted index with facets and explain lag after a write. |
+| 58 | [Video on demand](days/58-video-on-demand.md) | Lesson | Facing a long video, leave able to take upload through transcode to CDN playback without bytes sitting on the app tier. |
+| 59 | [Live video](days/59-live-video.md) | Lesson | Facing a live stream, leave able to ingest with adaptive bitrate and survive the stampede when the stream starts. |
+| 60 | [Nearby](days/60-nearby.md) | Lesson | Facing "what is near me," leave able to index points, bound staleness, and avoid leaking a precise location. |
+| 61 | [Ticket booking](days/61-ticket-booking.md) | Lesson | Facing assigned seats, leave able to hold specific seats with a TTL so you neither oversell nor lock the whole venue. |
+| 62 | [Metrics ingestion](days/62-metrics-ingestion.md) | Lesson | Facing a firehose of measurements, leave able to ingest points with a cardinality limit so one tenant cannot blow the store. |
+| 63 | [Mock: job scheduler](days/63-mock-job-scheduler.md) | Mock | Facing an unseen problem, leave able to design a job scheduler with leases, missed fires, and duplicate runs, not this week's search, video, location, ticket, or metrics lessons. |
+| 64 | [Metrics query and alerts](days/64-metrics-query-and-alerts.md) | Lesson | Facing graphs and pages rather than ingest, leave able to query downsampled series and stop one alert rule from paging on every blip. |
+| 65 | [Payments](days/65-payments.md) | Lesson | Facing money movement, leave able to authorize and capture against an idempotent ledger so a retry cannot move money twice. |
+| 66 | [Payment reconciliation](days/66-payment-reconciliation.md) | Lesson | Facing a provider and a ledger that disagree, leave able to find the mismatch and repair it without a silent rewrite of history. |
+| 67 | [Collaborative document](days/67-collaborative-document.md) | Lesson | Facing two editors in one document, leave able to persist concurrent edits and presence and say what you do when they diverge. |
+| 68 | [File sync](days/68-file-sync.md) | Lesson | Facing folders that must match across devices, leave able to sync chunks, resolve conflicts, and survive a client clock that lies. |
+| 69 | [Cart and checkout](days/69-cart-and-checkout.md) | Lesson | Facing a purchase, leave able to snapshot price and hold stock so a retry cannot double-charge or double-commit inventory. |
+| 70 | [Flash sale](days/70-flash-sale.md) | Lesson | Facing an arrival spike on scarce stock, leave able to queue buyers with a fairness rule instead of letting them pile onto the database. |
+| 71 | [Social graph](days/71-social-graph.md) | Lesson | Facing follow and block, leave able to store the graph so a privacy check stays correct on the read path. |
+| 72 | [Ephemeral stories](days/72-ephemeral-stories.md) | Lesson | Facing posts that must disappear, leave able to fan them out with a TTL that is real in storage and caches, not only in the UI. |
+| 73 | [Web crawler](days/73-web-crawler.md) | Lesson | Facing the public web as input, leave able to run a polite frontier with dedupe and freshness so one host is not melted. |
+| 74 | [Order book](days/74-order-book.md) | Lesson | Facing buy and sell orders, leave able to match one instrument on a single sequence and rebuild the book after the matcher crashes. |
+| 75 | [Feature flags](days/75-feature-flags.md) | Lesson | Facing a risky rollout, leave able to serve a flag or kill switch at low latency and bound how stale a client may be. |
+| 76 | [Audit log](days/76-audit-log.md) | Lesson | Facing "who did that," leave able to append a queryable activity log with retention and a tamper claim you can actually keep. |
+| 77 | [Mock: email inbox](days/77-mock-email-inbox.md) | Mock | Facing an unseen product, leave able to design a large email inbox (ingest, folders, search, attachments), not this week's graph, stories, crawler, book, flags, or audit lessons. |
 
 ## Phase 5 — Failure and senior signal (Days 78–84)
 
