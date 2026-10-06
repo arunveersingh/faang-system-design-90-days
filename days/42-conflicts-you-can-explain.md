@@ -91,6 +91,34 @@ For this forced edit of opaque text: **conditional write under one leader. No au
 
 "Automatic merge" of two edits of the same paragraph is an AI feature or a text CRDT. Both are out of scope for this course (no AI) or a later product day. The staff answer is the refusal plus the conditional write. The interviewer's follow-up will often be "ok, so 409." Take the win. Do not invent three-way merge to look senior. Senior is knowing when the datatype does not merge.
 
+
+### Staff depth: pick a boring conflict rule
+
+Opaque UTF-8 does not merge. Staff refuses CRDT-of-body as name-dropping and picks conditional write under one leader: version in the row, 409 on conflict, human merges.
+
+**One leader path.** `UPDATE ... WHERE version=?`; zero rows → 409 with current version. Two editors of v=3: one becomes v=4, the other retries. No clock. No sibling. Delete races use the same versioning or a tombstone the edit cannot resurrect after commit.
+
+**LWW when forced into dual writers.** Wall clock LWW: a fast clock wins forever. Hybrid clocks reduce wrong order frequency; they still discard one body when edits commute. Say the cost: **one edit disappears.** If unacceptable, keep siblings for the author — a different product (conflict-aware doc), not a silent 200.
+
+**CRDT only for types that commute.** G-Counter for views (day 32's salts are a hand-built merge). Sets union. Maps of independent keys. Sequence CRDT for text is collaborative editing (day 67), not this pastebin. "We'll CRDT the body" without a type is a fail.
+
+**10× concurrent editors.** 409 rate rises on a viral paste — product problem as much as systems. Hot edit key is still one row on one leader; day 32's write ceiling applies. You cannot salt a body into sixteen shards and merge without a rule you just refused.
+
+What staff sounds like: 409 as the feature, naming which write LWW discarded, and refusing automatic paragraph merge as out of scope.
+
+
+### Staff depth: 409 is the feature
+
+Opaque UTF-8 has no field-wise merge. Conditional write under one leader: integer version, `WHERE version=?`, zero rows → **409** with current version (and body if you choose). Two editors of v=3: one becomes v=4, the other retries. No wall clock. No sibling. No CRDT of paragraphs.
+
+**LWW if dual writers forced.** Wall-clock LWW: fast clock wins. Hybrid clocks reduce wrong order; still discard one body when edits commute. Say it: **one edit disappears.** If unacceptable, keep siblings for the author — a conflict-aware doc product, not a silent 200.
+
+**CRDT when the type merges.** Counters, sets, maps of independent keys. Sequence CRDT for text is collaborative editing (day 67). Naming "CRDT" without a type is name-dropping.
+
+**Delete vs edit.** Tombstone wins over in-flight edits carrying the old version. Prevents undelete-by-slow-PUT.
+
+**10× editors.** 409 rate rises; still one row on one leader. Salting a body does not work without a merge rule you refused.
+
 ## Diagrams
 
 ### Second writer under one leader
@@ -108,6 +136,16 @@ sequenceDiagram
 
 B lost. B can re-read and overwrite if the product allows. The server did not invent a third body.
 
+
+Caption: "B sent v=3 after A already made v=4 — 409, not a merged body."
+
+## Failure the user sees
+
+**Conditional write.** Second editor gets 409, re-reads, decides. Clear.
+
+**Silent LWW.** Second editor's sentence vanishes after an apparent save. Worst of the three.
+
+**Automatic concatenate merge.** Garbage body neither editor wrote.
 ## Trade-offs
 
 **Choice.** Versioned conditional edit under one leader. 409 on conflict. No CRDT for the body. Siblings only if two regions both wrote and you refuse to discard.
@@ -115,6 +153,8 @@ B lost. B can re-read and overwrite if the product allows. The server did not in
 **Alternative.** Silent LWW, or a text CRDT, or "the database merges."
 
 **What you give up.** Automatic resolution. One of two concurrent editors must retry. You keep a body that a human wrote, not a concatenation the server invented. You keep the right to say CRDT only when the type is a counter, a set, or a map of independent keys.
+
+**Name the refusal inside each alternative.** Against silent LWW: you refuse discarding an edit without telling the author. Against CRDT-of-body: you refuse a type that does not exist for opaque UTF-8. Against app-side read-modify-write without a version check: you refuse lost updates. Against salting body shards: you refuse a merge problem you cannot solve.
 
 **10×.** More concurrent editors on a viral paste. 409 rate rises. That is a product problem (many people editing one paste) as much as a systems one. The rule does not change. A hot edit key is still one row on one leader: day 32's write ceiling applies if edit QPS is large. Salting a body does not work. You cannot merge sixteen body shards into one paste without a rule. Conditional write stays on one row.
 
@@ -126,9 +166,36 @@ B lost. B can re-read and overwrite if the product allows. The server did not in
 
 **If they ask about Dynamo-style siblings.** You can keep siblings. You must surface them. Returning a random sibling as 200 is LWW with a worse name. The application, not the database, merges. For opaque text, the application is a human.
 
+**If they ask what the 409 returns.** "Current version and enough of the current body for the client to merge locally."
+
+**If they ask about CRDTs.** "For a view count or a tag set, yes. For this paste body, no — that is collaborative editing, a different interview."
+
 ## Say this in the room
 
-Under one leader I store a version and take a conditional edit, so the second writer with a stale version gets a 409 and must re-read. I will not invent a merged body from two opaque strings. Last-write-wins needs a clock and silently drops one edit, which I refuse for a paste. A CRDT is worth naming for a counter or a set, not for this body. If two regions both accept an edit, I either refuse dual writers or I keep siblings for the author, and I do not call a random pick a merge.
+I use a version on the row and a conditional update under one leader: the second writer of the same version gets 409 — with the current version and body so they can merge locally — and re-reads. I do not last-write-wins a paragraph into silence, and I do not claim a CRDT of arbitrary UTF-8; counters and sets merge, paste bodies do not. If two regions both accepted an edit I either refuse dual writers or I keep siblings for a human. Automatic merge of two sentences is collaborative editing, not this pastebin. Delete's tombstone wins over an in-flight edit that still carries the pre-delete version.
+
+### Room arithmetic for conflicts
+
+Two concurrent editors on a viral paste at even a few edits/s each still serialize on one row lock — fine. The product failure mode is not QPS; it is silent discard. Count 409s and, if you ever run LWW, count discarded losers. A pastebin that loses sentences without a metric will learn from users first.
+
+**Version width.** A 32-bit version at one edit/s lasts decades; at 100 edits/s of one paste you still have years. Overflow is not the interview. Lost updates without a version check are.
+
+**What you say when they want OT.** "That is collaborative editing with presence and intent — day 67 territory. Today I give 409 and a human merge."
+
+
+
+### More staff signal on conflicts
+
+**Why the version lives on the leader.** Only the leader advances it, so two concurrent transactions cannot both mint v=4. A client-supplied version without a check is an invitation to lost updates. The `WHERE` clause is the check.
+
+**Siblings as a product decision.** Returning a conflict object means the API is no longer `body: string`. Clients, CDN caching of conflict payloads, and UI all change. Say "different product" when you keep siblings — do not hide them behind a random 200.
+
+**Hot edit key.** One viral paste edited at high QPS is day 32's write ceiling on one row. You still do not salt the body. You shed edits or queue them (later days). Conditional write stays on one row.
+
+
+### Talk track denser
+
+Conditional edit under one leader: version in the row, 409 on conflict with current body, human merges. LWW only if dual writers are forced and the product accepts a discarded edit you can count. CRDT only for counters/sets/maps. Opaque UTF-8 gets 409, not magic. Tombstone beats in-flight edits with stale versions.
 
 ## Kit artifact
 
