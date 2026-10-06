@@ -90,6 +90,21 @@ You also do not restore a backup over the primary to "undo the backfill." That r
 
 Contract, much later, only if every writer sets the column and you have decided NULL is illegal: validate a constraint. Still no table rewrite if you can help it. And you still have nothing to drop, because you added a column. You did not replace one. Replacing `syntax` with a new encoding would be: add, dual-write, backfill, read new, stop writing old, drop old **only after** no binary reads old. The drop is a separate change with its own rollback plan, which is "you cannot roll back past the drop." So you wait.
 
+
+### Staff depth: ten days of NULL is success
+
+Expand with a nullable column, no default, no rewrite of 135 GB. Writers deploy first and populate on create. Backfill ~500/s under the 2,000 commit ceiling: 450M / 500 ≈ **10 days**. `WHERE col IS NULL` guards repeats. Readers treat NULL as unknown, not English.
+
+**Rollback.** Revert the binary; leave the column. Dropping mid-flight or restoring a backup over live creates loses data. Bad detector jobs fix forward with a recorded id set.
+
+**Name the refusal inside each alternative.** Against rewrite defaults: you refuse blocking creates on 135 GB. Against dropping the column on rollback: you refuse breaking rows written during expand. Against unconstrained full-bucket backfill GETs: you refuse a GET storm. Against treating NULL as English: you refuse a silent wrong label.
+
+**10×.** 4.5B rows at 500/s ≈ 104 days — raise rate only inside ceiling and I/O, or backfill by slot. Discipline unchanged.
+
+**Body-dependent fill.** Rate-limit bucket GETs; skip rows near expiry. Do not GET 450M objects carelessly.
+
+**Maintenance window alternative.** `NOT NULL DEFAULT` rewrites the table and blocks creates. Refuse at this size.
+
 ## Diagrams
 
 ### Steps that can overlap, and the one that cannot
@@ -110,6 +125,16 @@ flowchart LR
 
 The last arrow is a different week. Rollback walks back to the previous binary and does not take that arrow.
 
+
+Caption: "Expand and writers overlap; cutover waits for backfill to be correct enough."
+
+## Failure the user sees
+
+**During backfill.** Some pastes show language; some show unknown. Acceptable if UI allows.
+
+**Failed expand with rewrite.** Creates stall for the rewrite duration; possible lockups. The outage you avoided.
+
+**Rollback that drops the column.** New creates that wrote the column break; old binary confused. Leave the column.
 ## Trade-offs
 
 **Choice.** Nullable column, no default, no rewrite. Writers first. Backfill at 500/s, about ten days, guarded by `IS NULL`, reading the body from the bucket. Rollback reverts the binary and leaves the column. A bad fill is repaired forward.
@@ -128,9 +153,44 @@ The last arrow is a different week. Rollback walks back to the previous binary a
 
 **If they ask about the index.** "Not in this change. Nothing queries by language. If that stops being true, the index is a write cost I will say out loud, not a clause on the alter."
 
+**If they ask how long.** "About ten days at 500 a second for 450 million rows, under a 2,000 commit ceiling."
+
+**If they ask about rollback.** "Deploy the old binary. Leave the column. Fix bad fills forward."
+
 ## Say this in the room
 
-I add language as a nullable column with no default so the alter does not rewrite 135 GB, assuming a Postgres that can do that, and new creates write it while old rows stay NULL, which means unknown rather than English. A job fills them at about 500 a second, under the 2,000 commit ceiling, which is 450 million divided by 500, about ten days, and it only updates rows that are still NULL. Readers tolerate NULL the whole time. Rollback is deploying the old binary: I do not drop the column and I do not restore a backup over live creates. A bad detector is fixed by a forward job, so I have to know which rows it wrote.
+I add language as a nullable column with no default so the alter does not rewrite 135 GB, and new creates write it while old rows stay NULL meaning unknown rather than English. A job fills them at about 500 a second, under the 2,000 commit ceiling — 450 million divided by 500, about ten days — and it only updates rows that are still NULL. Readers tolerate NULL the whole time. Rollback is deploying the old binary: I do not drop the column and I do not restore a backup over live creates. A bad detector is fixed by a forward job, so I have to know which rows it wrote. At 10× the same discipline takes on the order of a hundred days unless I raise the rate carefully inside the ceiling.
+
+### Backfill operations card
+
+| Dial | Value | Why |
+|---|---|---|
+| Rate | ~500/s | Under 2,000 commit ceiling with headroom for creates |
+| Predicate | `IS NULL` | Safe replay |
+| Duration | ~10 days | 450e6/500 |
+| Rollback | Old binary | Column stays |
+| Bad fill | Forward job | Need id set |
+
+**Expand/contract classic.** Add column → write both → backfill → read new → stop write old → drop old later. Today you only add. Skipping expand and rewriting with DEFAULT is the maintenance-window fantasy.
+
+**Presence of NULL in APIs.** Return `"language": null` or omit; never coerce to `"en"`. Coercion makes backfill look done when it is wrong.
+
+
+
+### Failure and probes (schema)
+
+**Coercing NULL to en.** UI lies; backfill looks done; support cannot tell unknown from English.
+
+**Rewrite migration.** Creates block; incident clock starts; you traded a ten-day online backfill for a maintenance outage.
+
+**If they ask about multi-phase expand/contract.** "Add nullable → write new → backfill → read new → stop writing old → drop old later. Today we only add. Skipping to NOT NULL DEFAULT is the rewrite I refused."
+
+**If they ask about 10× duration.** "About a hundred days at 500 a second unless I raise the rate inside the commit and I/O budget or backfill by slot."
+
+
+### Talk track denser
+
+Nullable expand, writers first, backfill ~500/s ≈ ten days for 450M rows, `IS NULL` guard, NULL means unknown, rollback is old binary with column left in place, bad fills fix forward. Refuse rewrite defaults. At 10× expect ~100 days unless you raise rate inside the ceiling.
 
 ## Kit artifact
 
