@@ -88,9 +88,24 @@ A delete in a leaderless set is a write with a version, a tombstone, or it is no
 
 If the two "copies" you wrote are not from the three you meant, but a stand-in you used because a preferred node was unreachable, a strict read of the preferred three can miss the write. The inequality assumed the sets were drawn from the same N. Sloppy quorum breaks that assumption on purpose, to take the write during a partition, and hinted handoff is supposed to repair it later. Until the repair, you are stale. Dynamo's name for this is not required in the room. The outcome is. **You refuse sloppy quorum for a delete.** A delete that landed on a stand-in, while the preferred copies still serve the body, is a resurrection you already decided the origin does not get. For a create, a sloppy ack is a 201 that the next strict read 404s. Same class of lie as the async replica tail, with a worse story. If you cannot explain the repair, you do not take the write. You 503.
 
+### Latency and unavailability, with integers
+
+**W = 2 of N = 3.** The 201 waits for the second-fastest ack. In-region that is typically a couple of milliseconds beyond the first disk. You are not buying that latency today because you are not adopting the quorum. If forced, say the 201 includes that second ack, and a timeout after one ack is **unknown**, not failure — day 37 owns the client retry.
+
+**Two copies down.** W = 2 cannot complete. Creates 503 even though one disk is up. At peak that is **350 failed creates/s** until a second copy returns. Same class of error as a leader election window, without the 30-second bound.
+
+**R = 1, W = 2 (the stale branch).** Faster reads. After a 201 acked by A and B, a read of only C can 404. Legal if the call may be stale. Not linearizable.
+
+**Fork under two W = 2 writes of one row.** Both return success; siblings appear. Overlap met a copy of each write; it did not make one order. Day 42 owns the rule. Refuse "strongly consistent" for N=3,W=2 without versions.
+
 ### Why the pastebin does not buy this
 
 You already have one primary and one async replica. The primary gives you a single order for one row without sibling versions. The replica is not a member of an R = 2 read. Turning the row store into N = 3, W = 2, R = 2 means you operate a leaderless replication protocol, you reconcile forks, and you still have the edge at 60 seconds, which no quorum on the origin fixes. The primary's happy-path read rate is about 87/s. You are not capacity-bound into this. The quorum is the answer when they **forbid a leader** or when the store you were handed is already leaderless. Then you pick **N = 3, W = 2, R = 2**, versions on the row, no sloppy deletes, and you say the unavailable outcome: two copies down, writes fail. You do not pick it because the word quorum sounded like durability. The bucket's three-way replication of the **bytes** can stay the bucket's problem. You do not reimplement it on the whiteboard.
+
+**Compare to the election window you already own.** Day 36 budgets ~30 seconds without a leader: ~10,500 failed creates at peak on one shard. Quorum with two copies down has no such bound — it lasts until capacity returns. Quorum with one copy down has **no** write hole. That comparison is the only fair one: you are trading a bounded election outage for unbounded dual-failure outage plus sibling reconciliation. Pick with that table, not with the word "quorum."
+
+**Versions are not optional if you switch.** A read of R = 2 that returns the first body it sees can return the older copy that also answered. Highest version wins only if every write stamped one. Without that, overlap is a meeting, not a newest-value guarantee. Budget the version column and the read compare in the same breath as N, R, W.
+
 
 Latency, so the integers mean something physical: a W = 2 write takes the **second**-fastest ack, in-region, on the order of a couple of milliseconds plus the disk, not the third. You do not add those milliseconds to a design you are not adopting. If they force the adoption, the 201 waits for that second ack, and a timeout after one ack is an unknown, not a failure. The client retry problem is day 37. The quorum did not solve it.
 
@@ -113,6 +128,18 @@ flowchart LR
 
 The left read met the write at A. The right read cannot meet a write that never touched C.
 
+Caption: "Left: R=2 meets the write at A. Right: R=1 can miss it on C." Write W=2 on both write boxes so the only variable is R.
+
+## Failure the user sees
+
+**Quorum adopted, one copy down.** W=2,R=2 still work. Slightly higher write latency. Fine.
+
+**Quorum adopted, two copies down.** Every create 503s; cold reads needing R=2 also 503. Cache/edge hits unaffected. You cannot promote a single survivor into lone W=1 without changing the contract mid-incident.
+
+**Sloppy write of a delete.** User got 204; preferred copies still serve the body. Resurrection. Refuse sloppy deletes.
+
+**Leader kept (current design).** No sibling forks. You still have the election window (day 36) and async lag (day 34), not quorum loss.
+
 ## Trade-offs
 
 **Choice.** Keep the leader for the paste row. Be able to say N = 3, W = 2, R = 2, overlap, the fork, and the 503 when two copies are down. Refuse sloppy deletes.
@@ -120,6 +147,8 @@ The left read met the write at A. The right read cannot meet a write that never 
 **Alternative.** Replace the primary with that quorum today.
 
 **What you give up.** Nothing on the current path, because you did not switch. If you switch, you give up the single commit order and you take on sibling versions, and you still do not fix the edge. You gain a write that survives one copy being down without an election. That gain is real. It is not free, and it is not this week's capacity problem.
+
+**Name the refusal inside each alternative.** Against replacing the primary with N=3,W=2,R=2 today: you refuse sibling versions for a primary not capacity-bound at 87 reads/s. Against R=1 with W=2 while claiming linearizable GET: you refuse a non-overlapping read set. Against W=3,R=1: you refuse a create outage when any one copy is down. Against sloppy quorum for delete: you refuse a 204 preferred copies can resurrect. Against "majority" without integers: you refuse an adjective.
 
 **10×.** Still not the reason. 3,500 commits/s is a shard-count problem from day 31, and each shard can keep a leader. A quorum per shard multiplies the forks by the number of shards. Do not "upgrade" the 10× plan to leaderless in the same breath as you hash the id.
 
@@ -129,11 +158,26 @@ The left read met the write at A. The right read cannot meet a write that never 
 
 **Hand-waving.** "W + R > N means linearizable." It means the sets overlap. Linearizability still wants one order in real time, which two racing writes do not have until you add a leader or a conditional version that makes one of them fail.
 
+**Hand-waving.** "We'll use the bucket's quorum for metadata too." The bucket replicates bytes you do not query by version for paste identity. The row store's guarantee is which id exists and whether it is deleted. Do not conflate erasure coding of objects with R/W of rows.
+
+
+**If they ask what the user sees when two of three are down.** "Creates 503 until a second copy returns — about 350 a second at peak. I chose that over a write only one copy saw."
+
+**If they ask whether W+R>N is linearizability.** "It is overlap. Linearizability still needs one real-time order. Two racing writes need a leader or a conditional version — day 42."
+
 **If they ask where Raft fits.** It is one way to **elect the leader** you already have, inside a product you do not write. It is not the quorum you just drew. Day 36. You will not derive it.
 
 ## Say this in the room
 
-N is the copies, W is how many must ack before I return 201, and R is how many must answer a read. With 3, 2, and 2 the sets overlap, so a read can meet the write, but I still need a version or I may return the older copy that also answered. I wait for the second ack, not the third, and if two copies are down the write fails on purpose rather than land on one copy a later read can miss. R = 1 with W = 2 does not overlap, so that read can be stale, and I would be lying to call it linearizable. This pastebin keeps a leader; the quorum is what I would say if they took the leader away, not a box I am adding at 87 primary reads a second.
+N is the copies, W is how many must ack before I return 201, and R is how many must answer a read. With 3, 2, and 2 the sets overlap, so a read can meet the write, but I still need a version or I may return the older copy that also answered. I wait for the second ack, not the third, and if two copies are down the write fails on purpose — about 350 creates a second of 503 at peak — rather than land on one copy a later read can miss. R = 1 with W = 2 does not overlap, so that read can be stale after a 201, and I would be lying to call it linearizable. Sloppy quorum for delete is how a 204 comes back as a body on preferred nodes; I refuse it. This pastebin keeps a leader; the quorum is what I would say if they took the leader away, not a box I am adding at 87 primary reads a second.
+
+
+**What staff sounds like.** Integers first (N,R,W), then overlap, then the fork, then the 503 when two copies are down. Comparing that unbounded dual-failure hole to day 36's bounded 30-second election. Refusing sloppy deletes because a 204 that preferred nodes can resurrect is the day-29 bug with extra steps. Keeping the leader at 87 primary reads/s because capacity did not force the migration.
+
+
+### Worked unavailability sentence
+
+With N=3,W=2, two copies down means creates hard-fail at ~350/s until capacity returns — unbounded relative to day 36's 30-second election. With one copy down, W=2,R=2 still works. That comparison is how you choose a leader vs a quorum without slogans. Versions on every write remain mandatory if you switch; overlap without versions returns whichever copy answered.
 
 ## Kit artifact
 

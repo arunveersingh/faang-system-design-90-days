@@ -78,6 +78,9 @@ The contract's real requirement is narrower than "every GET." The deleter, and a
 
 **Cross-object order.** Linearizability of each paste does not order paste A against paste B. You have no page that lists both. Do not promise "the order of creates" to a client you cannot show a list to. There is no list endpoint.
 
+**A "linearizable cache" as a box.** People draw a cache and label it linearizable because the primary is. The cache is linearizable for a key only while every write to that key updates the cache in the same real-time order, which is exactly the tombstone rule. Without it, the cache is a TTL-bounded stale reader. Do not label the box. Label the rule.
+
+
 ### The price of nodding
 
 If every public GET is linearizable, it cannot be served by an edge entry that is allowed to be 60 seconds old, and it cannot be served by a replica. The read lands on the primary, or on a cache that is synchronously tied to the primary's commit. Take the pessimistic reading they will take: **17,400 point reads/s** at the primary at peak, before the 3× you already folded in. The planning ceiling is **15,000**. You are over, on the day you say yes.
@@ -85,6 +88,21 @@ If every public GET is linearizable, it cannot be served by an edge entry that i
 Even the happy path is a choice you must say out loud. Warm edge, 95% of 17,400 is **16,530** edge hits that are **not** linearizable. The remaining 870 are origin. Ninety percent of those hit the metadata cache: **783** cache hits and **87** primary reads. Those 16,530 are the reads whose linearizability you sold away so the primary could exist. If you want them back, you delete the CDN from the design and you explain the NIC. Day 15's hot object was the reason the CDN exists. A linearizable hot object is served from the primary's region every time. That is the trade, in one breath: **real-time order for strangers, or the edge. Not both.**
 
 Creator read-your-writes is not this property. It is weaker, and it is day 34. Do not offer it today as a synonym, and do not refuse it today either. You have not designed the session token yet. Say "not the same, not today's box."
+
+### Price the yes-list before you grow it
+
+The operations that already have linearizability cost you almost nothing extra to name: primary insert, primary delete, primary point read, tombstone. Naming them is free. Adding the edge is not free. Before you nod at "make reads linearizable," write the QPS you would move:
+
+| Path today | QPS at peak (day 21/26 assumptions) | Linearizable? |
+|---|---|---|
+| Edge hit | ~16,530 | No — that is the point of the CDN |
+| Origin metadata cache hit | ~783 | Only with the tombstone rule |
+| Primary point read | ~87 | Yes |
+| Cold edge (hypothetical) | 17,400 on the primary | Over the 15,000 ceiling |
+
+The table is the argument. Staff fills it before debating synonyms. A senior answer defines the word. A staff answer shows which rows of traffic lose the property and what the primary's ceiling does if you take them back.
+
+**Creator read-your-writes is still not a row in that table.** It is a session promise for one client, day 34. Folding it into "linearizable GET" is how you accidentally promise strangers a property you only owed the uploader.
 
 ### What you say when they insist
 
@@ -110,6 +128,18 @@ sequenceDiagram
 
 The origin arrow passes the test. The edge arrow fails it. Both arrows are the design.
 
+Caption: "Origin passes the real-time test; edge fails it on purpose." Write "starts after 204" on both GET arrows so the interviewer sees you are applying the definition, not waving at boxes.
+
+## Failure the user sees when you refuse, and when you nod
+
+**Deleter, current design.** 204, then their own origin GET is 404. Their friend on a POP still sees the body for up to 60 seconds. The failure the deleter notices is "I deleted it but the link still works for some people." That is the accepted failure, and it is a product sentence you should rehearse.
+
+**Stranger, current design.** May see a paste whose delete already returned. May also see a brand-new paste after 201 once the edge fills. Neither violates a promise you made to them; you never promised them real-time order.
+
+**If you nodded and put every GET on the primary.** At cold edge you are at 17,400 point reads/s against a 15,000 ceiling. Creates share that primary. The failure the user sees is elevated latency and 503s on create and read together, on a healthy day, because you spent the ceiling on a property the CDN was bought to avoid. Warm-edge days look fine until a purge or a deploy cold-starts the POPs and the cliff appears.
+
+**If you "fixed" the edge with synchronous global invalidation.** You now have a cross-region consensus problem on every delete. A POP that misses the invalidation still serves the body; a POP that blocks delete on ACK makes 204 wait on the slowest region. The user-visible failure becomes either a slow delete or the same stale read you claimed to remove. You did not buy linearizability. You bought a harder operational story for the same 60-second class of bug.
+
 ## Trade-offs
 
 **Choice.** Linearizable single-row operations on the primary, including delete-then-origin-read. Refuse it for the edge and for any replica read.
@@ -120,6 +150,11 @@ The origin arrow passes the test. The edge arrow fails it. Both arrows are the d
 
 **When the alternative is the product.** A paste that is a secret you just revoked, and 60 seconds of leakage is unacceptable. Then max-age collapses toward zero for that class, origin reads jump, and you respec the primary or you shed. You still do not get a free linearizable CDN. You get a more expensive origin.
 
+**The secret-revoke arithmetic, so the alternative is not free.** Suppose 1% of pastes are "revoke must be immediate" and they take 1% of reads. That is about 174 origin reads/s at peak if those objects never hit a long-lived edge entry — still fine. If a revoked paste was already hot on the edge at 8,700/s, collapsing max-age after the fact does not pull the bytes back from POPs that already hold them; only a purge might, and purge is still best-effort. The honest product for secrets is: never put them on a shared edge with a positive max-age, or accept that revoke is "origin dark, edge drains." Linearizability of the secret is a classification at write time, not a flag you flip on delete.
+
+
+**Name the refusal inside each alternative.** Against linearizable public GET: you refuse 17,400 primary reads/s against a 15,000 ceiling, or a global invalidation protocol you cannot operate. Against calling the database's property the system's property: you refuse to ignore the edge arrow that fails the real-time test. Against offering read-your-writes as a synonym today: you refuse to smuggle day 34's session token into a definition that mentions strangers. Against "we'll make max-age zero for everything": you refuse to delete the CDN with a config flag and relive day 15's NIC. Each refusal names the QPS or the protocol it would cost.
+
 **10×.** Cold-edge linearizable reads are **174,000/s**. That is not a tuning. That is a different topology, and it is not this pastebin. The refusal gets more important at 10×, not less. The 60-second lie also gets ten times more readers, which you already priced.
 
 ## Talking points
@@ -128,11 +163,21 @@ The origin arrow passes the test. The edge arrow fails it. Both arrows are the d
 
 **Hand-waving.** "Linearizable and serializable are both strong." Say the real-time clause, or do not use the first word.
 
+**Hand-waving.** "We'll add a version number and it'll be linearizable." A version orders writes you already accepted. It does not make an edge GET that returns an old body start after a delete. Versions without a read path that sees them are decoration.
+
+
+**If they ask what breaks in the product if public GET is linearizable.** "I lose the CDN for any read that must see a completed delete. At peak that puts about 17,400 point reads a second on a primary I sized for about 15,000, and the warm-path 16,530 edge hits are exactly the reads whose real-time order I sold so the primary could exist."
+
+**If they ask whether overlapping GETs must agree.** "No. Linearizability does not freeze the world for readers who raced the writer. Two overlapping GETs can return in either order. The test is about a GET that starts after a write completes."
+
 **If they ask about a quorum.** A quorum can be a way to implement a linearizable read of a leaderless object, and it can be a way to implement a stale one. The letters N, R, and W are day 35. They are not a synonym you can throw in today. If you need a sentence: "I would still have to say whether a read is required to see a write that already returned, and a quorum does not answer that until R and W do."
 
 ## Say this in the room
 
-Linearizable means a call takes effect at one moment between its send and its response, and a call that starts after another call finishes sees that earlier call. On this pastebin the primary's insert, delete, and point read have that, and a delete's tombstone is what keeps a late cache fill from breaking it at the origin. I refuse it for edge GETs, because a POP is allowed to serve a body for 60 seconds after the 204, which is a completed delete followed by a read that returns the old value. I also refuse replica reads, for the same clause in the other direction: a 201 that the replica has not applied yet. Making every public GET linearizable throws those reads at the primary, and 17,400 is already over the 15,000 ceiling I planned for.
+Linearizable means a call takes effect at one moment between its send and its response, and a call that starts after another call finishes sees that earlier call. On this pastebin the primary's insert, delete, and point read have that, and a delete's tombstone is what keeps a late cache fill from breaking it at the origin. I refuse it for edge GETs: a POP may serve a body for 60 seconds after the 204, which is a completed delete followed by a read that returns the old value. I also refuse replica reads, for the same clause the other way: a 201 the replica has not applied yet. Making every public GET linearizable throws about 17,400 reads a second at a primary sized for about 15,000, and even on the happy path about 16,530 edge hits are the reads whose real-time order I sold so that primary could exist. Read-your-writes is a different promise for the uploader, not a synonym I will offer today.
+
+
+**What staff sounds like.** Filling the QPS table before debating synonyms: 16,530 edge hits sold away so 87 primary reads can be linearizable. Refusing a free linearizable CDN. Secret revoke as a write-time classification, not a delete-time flag.
 
 ## Kit artifact
 

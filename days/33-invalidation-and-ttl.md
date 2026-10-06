@@ -80,6 +80,16 @@ Negative caching: a 404 at the edge must not stick for the max-age, or a create 
 
 Hot-key arithmetic, same as day 29, now tied to the mechanism: 8,700 × 60 = **522,000** edge serves. Origin serves of that deleted paste, on the branch you chose, are the requests already inside the app when the tombstone landed. You do not multiply those by 60. If your attempt had one window for both, you either slowed delete to a global lock or you let the origin lie for a minute. Both are worse than the split.
 
+### Tombstone failure modes, priced
+
+**Tombstone write succeeds.** Origin stale window is the in-flight fill race only — milliseconds of requests already inside the app, not 60 seconds. At 8,700/s, even 50 ms of in-flight is on the order of **435** origin serves that might race; the tombstone compare must win those, not a longer TTL.
+
+**Tombstone write fails, you return 503.** Row is deleted. Client retries DELETE (idempotent). Origin may still have a pre-delete cache hit until that entry's TTL, but you did not claim 204. Prefer this branch. Cost: delete latency includes a few milliseconds of cache RTT; when the cache is down, deletes 503 even though the row is gone.
+
+**Tombstone write fails, you still return 204.** You just promised origin correctness you do not have. Stale origin hits for up to **60 seconds** of remaining TTL. On the hot key that is the same order of magnitude as the edge lie, now on the origin path you swore was correct. This is the branch day 29 told you not to take.
+
+**Short TTL instead of invalidation.** A 5-second TTL on every metadata key: each key misses 12 times a minute. At ~870 origin metadata reads/s happy path that were mostly hits, you multiply misses toward the primary. For the hot key you effectively deleted the cache: 8,700/s hit the primary every 5 seconds of freshness. Invalidation exists so TTLs can stay long on the keys nobody deleted.
+
 ### Where TTL is the right tool
 
 Any holder you cannot address. The edge. A browser. An intermediate proxy you do not operate. You cannot invalidate what you cannot name. You can only bound it. Max-age is that bound. Jitter on the origin TTL is the other job of a TTL: memory, and not expiring the whole keyspace in one second. That is day 11. It is not delete.
@@ -87,6 +97,13 @@ Any holder you cannot address. The edge. A browser. An intermediate proxy you do
 Invalidation is the right tool when you can name the key and you promised a reader who talks to you directly that the new value is visible when the write returns. That reader is the next origin GET. You can name `meta:{id}`. Write the tombstone.
 
 A hybrid that sounds clever and is not: "TTL of 1 second so we do not need invalidation." You just set the stale window to 1 second **and** took 60× the misses. Say the miss rate if you do it. Origin reads that were cache hits become misses every second. For the hot key, 8,700/s already miss the moment you refuse to cache it usefully. You have deleted the cache with a short number. Invalidation exists so the TTL can stay long on the keys nobody deleted.
+
+**Jitter is not delete.** Origin TTLs of ~60 seconds with jitter spread expiry so the keyspace does not miss in lockstep. That protects memory and stampede shape for live keys. It does nothing for a key whose row was deleted: without a tombstone, a hit remains valid until that jittered expiry. Do not point at jitter when they ask how delete works.
+
+**Purge rate vs delete rate.** User deletes plus expiry detach can approach create peak on the outbox, ~350/s. Each may attempt a CDN purge. If the purge API caps lower, the queue backs up and max-age remains the guarantee. Size the worker for detach and object delete first; purge is opportunistic. Page on outbox age, not on purge success percent alone.
+
+**Browser max-age vs `s-maxage`.** Day 15 split them so a browser can be shorter than the shared cache, and so a purge of the shared cache still bounds strangers. Today: the origin promise does not care about browser caches you do not control — those are TTL holders you cannot name, same class as a POP. Do not claim you invalidated someone's phone.
+
 
 ## Diagrams
 
@@ -109,6 +126,18 @@ sequenceDiagram
 
 The 204 is under the tombstone, not under the purge.
 
+Caption: "204 sits under the tombstone arrow; purge is after the response." If your sequence has 204 above the outbox, you drew the bug.
+
+## Failure the user sees
+
+**Owner deletes, tombstone OK, purge slow.** Origin 404s immediately. Edge may serve for up to 60 seconds (~522,000 hits on the hot paste). Owner thinks delete failed if they check the public link. Product copy: "It can take up to a minute for the public link to stop working."
+
+**Owner deletes, cache down, you 503.** Owner retries; eventually cache is back and tombstone lands. Row was already gone on the first try. Confusing but correct: you never claimed 204 without the origin promise.
+
+**Owner deletes, cache down, you 204 anyway.** Some origin readers still see the body until TTL. That is the day-29 bug as a user story: "I got 204 but the site still shows it on origin."
+
+**Negative cache of a 404 at the edge.** Create, then read at a POP that cached a prior miss: paste looks missing until that negative entry expires. You refused to cache 404s for this reason. The failure is a false miss of a brand-new paste.
+
 ## Trade-offs
 
 **Choice.** Invalidate the origin key by a tombstone the 204 waits for. TTL the edge at 60 seconds. Purge if you can. Do not couple them.
@@ -116,6 +145,8 @@ The 204 is under the tombstone, not under the purge.
 **Alternative.** TTL only, both layers, and a short TTL if someone complains about deletes.
 
 **What you give up.** A 204 that is a few milliseconds slower, and a cache you depend on for the meaning of 204. You keep long TTLs for the common case, which is a paste nobody deletes during its life. You accept 522,000 possible stale edge reads of one hot delete.
+
+**Name the refusal inside each alternative.** Against TTL-only on origin: you refuse a 60-second origin lie or a stampede from a 1-second TTL. Against waiting for CDN purge inside 204: you refuse a delete that blocks on every POP. Against bare `DEL` of the cache key: you refuse a late fill putting the row back. Against caching edge 404s: you refuse a false miss after create. Against one window for origin and edge: you refuse either a global lock on delete or a minute of origin staleness. Each refusal names the promise it would break.
 
 **10×.** The edge window does not change. The count does: about **5.2 million** serves if the hot key scales. The origin mechanism does not get a new design at 10×. A failed tombstone write at 10× is still a 503 on that delete, not a new bus. If 60 seconds becomes unacceptable at that audience size, you lower max-age and you recompute origin QPS. You still do not claim you invalidated every POP.
 
@@ -125,11 +156,23 @@ The 204 is under the tombstone, not under the purge.
 
 **Hand-waving.** "Everything is TTL, invalidation is a myth." The myth is synchronous invalidation of the entire internet. The local key you own is not a myth. You write it on the way out.
 
+**Hand-waving.** "We'll use a message bus to invalidate all caches." You already have an outbox for work the user does not wait on. Putting origin invalidation on that bus makes 204 wait on "eventual" consumers or returns 204 before invalidation — both worse than a synchronous tombstone write of one key. The bus is for purge and object delete. The tombstone is on the request path.
+
+
+**If they ask what a failed purge does.** "Nothing to the guarantee. The window is still 60 seconds. Purge is an optimization that sometimes shortens it. If I cannot say that, I do not have a design."
+
+**If they ask how many origin stale serves on the good path.** "In-flight only. At 8,700 a second, tens to a few hundred requests already inside the app, not times 60. The tombstone compare has to win those fills."
+
 **If they ask about the body in the app.** You do not cache the body on the app. There is no body key to invalidate there. The edge holds the body. That split is why the two mechanisms differ. Do not invent an app-level body cache so you have something to invalidate.
 
 ## Say this in the room
 
-The origin cache is invalidated by a tombstone I write before I return 204, so a late fill cannot put the paste back, and if I cannot write it the client gets a 503 and retries even though the row is already gone. The edge is not invalidated: it is a TTL of at most 60 seconds, and a purge that fails leaves that window in place on purpose. On a hot paste that is about 8,700 reads a second times 60, about half a million stale serves, which I would rather own than make delete wait for every POP. A one-second TTL everywhere would be a stampede, not an invalidation strategy.
+The origin cache is invalidated by a tombstone I write before I return 204, so a late fill cannot put the paste back, and if I cannot write it the client gets a 503 and retries even though the row is already gone. The good-path origin stale window is in-flight requests only, on the order of hundreds at 8,700 a second, not times 60. The edge is not invalidated: it is a TTL of at most 60 seconds, and a purge that fails leaves that window in place on purpose — about 522,000 stale serves on a hot paste. I would rather own that number than make delete wait for every POP. A one-second TTL everywhere would be a stampede, not an invalidation strategy, and a bare delete of the cache key is how the row comes back.
+
+
+**If they ask whether browser caches break the origin promise.** "Browsers are holders I cannot name — same class as a POP. The origin promise is for readers who talk to origin. I document max-age; I do not claim I invalidated someone's phone."
+
+**What staff sounds like.** Splitting the windows: origin invalidation timed to 204, edge TTL timed to max-age, purge as a non-guarantee. Pricing 522,000 edge serves and refusing to move that number onto the origin path with a failed tombstone that still returns 204.
 
 ## Kit artifact
 

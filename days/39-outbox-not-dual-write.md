@@ -87,9 +87,38 @@ The broker ack is not the database commit. If you "publish then mark," and mark 
 
 Do not return 204 after the publish. The user wait must not include the broker. The 204 waits for the database commit and the tombstone. The publish is the poller's problem a second later.
 
+### Dual-write holes, priced
+
+**Commit then publish fails.** Row gone, outbox missing if you never used one: object and edge remain. At peak ~35 user deletes/s plus ~116 expiry detaches, a process that dies between commit and publish once a day leaves that day's orphans until a sweeper notices. The outbox makes the intent a row you can count: page on `max(age)` of unpublished rows, not on "publish error rate looked fine."
+
+**Publish then commit fails.** Worker deletes object for a live paste → `body_missing` 500 on cold read; or purges while origin still has the row → edge dark, origin 200. User who still has the link sees a broken paste. This direction is data loss of a live document. Refuse it harder than the leak.
+
+**Poll lag vs edge guarantee.** 1-second poll means the object is usually gone in a few seconds when healthy. The **promise** remains 60-second max-age. Advertising "deletes in one second" because the poll is one second is a lie the CDN will disprove. Say both numbers: poll for ops, max-age for the product.
+
+**CDC without an outbox.** Stream of paste deletes can lag or drop a slot; you have no countable "still needs work" row. Prefer the outbox table as durable intent; CDC of that table can wake the poller faster but does not replace it. Page on unpublished outbox age.
+
+**Create outbox for a ghost topic.** Nobody consumes `paste.created`. You bought dual-write machinery and a consumer you will invent to justify it. Refuse. Search index later is a different outbox row committed with the paste — still not a dual write, and not today's product.
+
 ### Create stays off the outbox
 
 PUT, insert paste, insert idempotency key, commit, 201. No outbox. There is no consumer for "a paste was created" in this product. Adding one so "everything is event-driven" is a second source of truth you will then have to reconcile when a consumer is behind. Refuse it. If they force a search index later, that is day 57's shape and a different outbox row, still committed with the paste, still not a dual write. Today there is no index.
+
+
+### Staff depth: intent you can count
+
+The outbox exists so "delete committed" and "work remains" are one fact. Dual write splits them; CDC of the paste table without an outbox hopes a stream is that fact. Staff pages on the oldest unpublished outbox row because that age is the user's bytes-still-at-rest and the edge's eventual darkness, measured in a number on-call can act on.
+
+**Two failure directions, unequal severity.** Commit-without-publish leaks objects — privacy and cost, usually recoverable by a reaper if you still have the id in logs or a separate orphan scanner. Publish-without-commit deletes bytes for a live row — `body_missing` for anyone who still has the link. Rank them: data loss of a live paste outranks a leak. Any design that can take the publish-first path in a retry library is ranked wrong.
+
+**204's dependencies.** Commit of row+outbox, then tombstone, then 204. Not publish. A 503 after commit because the tombstone failed still leaves correct origin on the next miss and a worker job pending. Rolling back the outbox because the cache blinked reintroduces "committed delete with no intent row." Leave the outbox; fix the tombstone on retry of DELETE (idempotent 404 path) or on a repair job.
+
+**Poller order mirrors day 38.** Publish (or run) while the outbox row exists; then mark published. Mark-then-publish drops work on crash. At ~35 user deletes/s and ~116 expiry jobs/s average, a 1-second poll with batch 100 is idle most ticks — the design is correctness, not throughput. At 10×, 350 deletes/s still fits one poller; the break remains the edge and the bucket, not the outbox table.
+
+**Create stays quiet.** No consumer means no outbox. Inventing `paste.created` so the architecture looks event-driven is how teams grow a second source of truth and then spend a year reconciling it. When search arrives, add an outbox row in the same create transaction — still one commit, still not a dual write to a broker from the request path.
+
+**What the status page says during poller lag.** Origin deletes work. Public links may work for up to a minute. Bytes disappear as workers catch up; outbox age is N minutes. That is honest. "Deletes are slow" without the split sends people to restart primaries.
+
+What staff sounds like: ranking the two dual-write holes, binding 204 to commit+tombstone only, paging on intent age, and refusing a create topic nobody reads.
 
 ## Diagrams
 
@@ -112,6 +141,16 @@ flowchart TB
 
 The dotted arrows are the bug. The outbox has one solid commit the message depends on.
 
+Caption: "One commit holds row and intent; poller is downstream." The dotted arrows on the dual-write side are the only paths that create leak or body_missing.
+
+## Failure the user sees
+
+**Healthy delete.** 204 after commit+tombstone. Edge may serve up to 60s. Object gone within seconds if poller healthy. Owner checking CDN thinks delete failed briefly — expected.
+
+**Poller down for 10 minutes.** Origin correct (404). Edge drains by TTL. Objects accumulate ~35×600 ≈ **21,000** pending deletes at peak user-delete rate, plus expiry detach. Outbox age alert fires. Users who care about bytes-at-rest see a delay; readers see correct origin.
+
+**Dual write, publish-first bug in production.** Live pastes lose bytes. Support sees `body_missing`. That is the pager you avoid by never taking that order.
+
 ## Trade-offs
 
 **Choice.** Delete and outbox in one transaction. Poller publishes. 204 does not wait for the broker. Page on outbox age. No create outbox.
@@ -119,6 +158,8 @@ The dotted arrows are the bug. The outbox has one solid commit the message depen
 **Alternative.** Dual write with retries, or "the CDC of the paste table is the queue."
 
 **What you give up.** Instant publish. You take about a second of poll lag on top of the 60-second edge you already owned, and you keep a table of unpublished work you can measure. You give up a design where the broker and the database can disagree about whether a delete happened.
+
+**Name the refusal inside each alternative.** Against dual write with retries: you refuse a hole that returns every crash between the two calls. Against spanning Postgres and Kafka in "one transaction": you refuse two commits you hoped would finish together. Against CDC of the paste table as the queue: you refuse intent you cannot count. Against create outbox with no consumer: you refuse ghost machinery. Against 204 after publish: you refuse making the user wait on the broker.
 
 **10×.** 350 deletes/s peak. Still one poller or a small pool. The outbox is not the 10× break. The edge and the object store are. A CDC pipe you cannot page on age of **intent** is a worse 10× story than a table of pending rows.
 
@@ -128,11 +169,29 @@ The dotted arrows are the bug. The outbox has one solid commit the message depen
 
 **Hand-waving.** "Outbox is overkill at this QPS." The bug is a correctness bug, not a load bug. It fires once per crash between the two writes. QPS does not make it rarer as a fraction of deletes. It makes the absolute count of crashes that matter larger over a year.
 
+**If they ask what you page on.** "Age of unpublished outbox rows. Not CDC lag alone. If the oldest intent is five minutes old, deletes are not finishing."
+
+**If they ask whether the poll beats the CDN.** "No. Poll is a few seconds when healthy; the product promise is still 60 seconds at the edge. I will not advertise the poll as the user-visible delete bound."
+
 **If they ask for exactly-once publish.** You have at-least-once publish from the outbox and at-least-once consume with an inbox. That pair is the design. The broker's "exactly once" mode does not remove the dual write between the database and the broker. The outbox does.
 
 ## Say this in the room
 
-A dual write is a row commit and a queue publish that can each succeed alone: one way I leak the object, the other way I delete bytes for a paste that is still live. I replace both with one transaction that inserts the outbox row next to the delete, return 204 after that commit and the tombstone, and let a poller publish about a second later. The user-visible lag is still the 60-second edge, not the poll. I page on the age of unpublished outbox rows. I do not publish on create, because nothing consumes that event, and a CDC stream is not a substitute for a row I can count.
+A dual write is a row commit and a queue publish that can each succeed alone: one way I leak the object, the other way I delete bytes for a paste that is still live — and publish-first is the data-loss direction. I replace both with one transaction that inserts the outbox row next to the delete, return 204 after that commit and the tombstone, and let a poller publish about a second later. The user-visible lag is still the 60-second edge, not the poll; I will not advertise one-second deletes. I page on the age of unpublished outbox rows. I do not publish on create, because nothing consumes that event, and a CDC stream of the paste table is not a substitute for a row I can count. Publish then mark in the worker; mark then publish is the dual write again inside the poller.
+
+
+### Poller and CDC, said without romance
+
+**Publish then mark.** The poller reads unpublished outbox rows, publishes, then marks. Crash after publish before mark: day 38 redelivers; inbox makes it cheap. Mark then publish: crash after mark leaves work that will never run unless a repair scan exists — you just built a dual write inside the worker.
+
+**Inline vs queue.** At 35 deletes/s you could run the worker inline from the poller without a broker. The outbox still matters: it is the durable intent. The broker is how you scale workers and survive poller restarts without losing the list. Do not skip the outbox because you skipped Kafka.
+
+**Metric that matters.** `outbox_oldest_unpublished_age_seconds`. Alert at 60s, page at 300s. Publish error rate alone can be zero while the poller is dead (no attempts). Age catches silence.
+
+**Create-outbox temptation scored.** Cost: extra write per create (~116/s), a consumer to build, reconciliation when the consumer lags. Benefit today: none. Score: refuse. When search lands, the benefit becomes "index eventually matches primary," and the outbox row commits with the paste — same pattern as delete, new `kind`.
+
+**User-visible copy on delayed detach.** "Your paste is deleted. It may take up to a minute to disappear from cached copies. Storage cleanup usually finishes within a few seconds." Two timescales, one status page.
+
 
 ## Kit artifact
 

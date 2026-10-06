@@ -116,7 +116,9 @@ If you need a fourth box, it is not part of the close.
 
 **Alternative.** One more box so the close feels like a design review.
 
-**What you give up.** The feeling of completeness. 60 seconds, a replication tail, and an election window remain. You keep a story you can say in two minutes, which is the only form that fits the end of a loop.
+**What you give up.** The feeling of completeness. 60 seconds, a replication tail, and an election window remain. You keep a story you can say in two minutes, which is the only form that fits the end of an interview.
+
+**Name the refusal inside each alternative.** See staff depth above for the named refusals tied to this day's alternatives.
 
 **10×.** Four shards, about 875 commits/s each, edge number about 5.2 million stale serves of one hot delete, WAL about 28 Mbit/s peak. Same promises. The failure you accept does not get a new mechanism because the number got bigger. If the 60 seconds becomes unacceptable, you shorten max-age and you pay origin reads. You still do not open a consensus lecture.
 
@@ -131,6 +133,90 @@ If you need a fourth box, it is not part of the close.
 ## Say this in the room
 
 A 201 is a commit on the leader of one shard, together with the idempotency row, and an edge read can still show a deleted paste for 60 seconds. I hash into 256 slots, I run one shard at today's 350 commits a second, and at about 3,500 commits a second I would run four shards, about 875 a second each, each with its own replica. A dead leader is about 30 seconds of 503 on writes and cache misses, not a 404, and not a protocol I draw. The failure I am not fixing is that 60-second edge, and the async tail that can lose a 201. I am not adding a second writer region or a body merge to make the close look finished.
+
+### Staff depth: close without one more box
+
+Three lines win the close: (1) 201 is leader commit + idempotency on one shard; edge may show a deleted paste for 60s. (2) Hash 256 slots; one shard at 350/s; four at ~875/s each at 10×; dead leader ~30s of 503 on writes/misses. (3) Failures you are not fixing: 60s edge, async RPO tail.
+
+**Numbers to defend when pushed.** 116/350 writes; 17,400 reads; 8,700×60=522,000; WAL ~2.8 Mbit/s; idempotency ~5 GB / 25h; inbox ~16 GB / 8d; backfill 450M at 500/s ≈ 10 days.
+
+**Refuse.** Second writer region, body merge, consensus lecture, one more store so the diagram looks finished. Loop→interview: the close must fit the end of an **interview**, not a design review that never stops.
+
+**10×.** Same promises; 5.2M stale edge serves; WAL ~28 Mbit/s. Shorten max-age if 60s becomes unacceptable — pay origin reads. No new mechanism from bigger numbers alone.
+
+
+### Staff depth: two-minute close
+
+**Line 1 — guarantees.** 201 = leader commit + idempotency on one shard. Origin GET = primary/tombstone. Edge GET ≤ 60s (≈522,000 serves on a hot delete at 8,700/s). DELETE 204 = origin dark; object/edge may lag.
+
+**Line 2 — partition.** Hash id into 256 slots; one shard at 350/s; four at ~875/s at 10×; dead leader ~30s of 503 on writes/misses for that shard's slots.
+
+**Line 3 — accepted failures.** 60s edge; async RPO tail (~70 pastes at 200 ms lag); election window. Not fixing with multi-master or body merge.
+
+**Defend when pushed.** 116/350; 17,400; WAL ~2.8 Mbit/s; idempotency ~5.3 GB/25h; inbox ~16 GB/8d; backfill ~10 days at 500/s.
+
+**Refuse.** One more box for completeness. Consensus lecture. Second writer region. Averaging four guarantees into "eventual."
+
+**Jargon.** This close fits the end of an **interview**, not an endless design review.
+
+
+
+### Failure the user sees at the close
+
+**They ask "is it consistent?"** You answer with four calls, not one adjective. If you slip into "eventual," you failed the close even if the boxes were right.
+
+**They ask "what happens when the primary dies?"** 503 on create and cache-miss for ~30 seconds; edge hits continue; after promotion, retry may duplicate without an idempotency key. Fence the old leader.
+
+**They ask "why not multi-region active-active?"** Idempotency key lives on one writer; a retry in another region double-creates; body merge is a product you refused.
+
+**They ask for one more box.** You stop. The chapter's value is a story you can say in two minutes with numbers attached. Another store is how the close becomes a second interview.
+
+### Named refusals for the close
+
+Against averaging guarantees into "eventual": you refuse to hide the 60-second edge inside a primary commit. Against drawing Raft: you refuse spending the close on votes. Against a second writer region: you refuse breaking idempotency. Against a body CRDT: you refuse a type that does not fit opaque text. Against sharding today's 350/s into four: you refuse four failover domains at 17% utilization. Against promoting a lagging replica for "availability": you refuse sticky origin lies.
+
+### Probes with numbers
+
+**"How many shards today?"** "One. Peak about 350 commits a second against a ceiling near 2,000. Four shards is the 10× drawing at about 875 each."
+
+**"How stale is delete?"** "Origin: after 204 and the tombstone. Edge: up to 60 seconds — about 522,000 serves on a hot paste at 8,700 reads a second."
+
+**"What is your RPO?"** "Async replica: on the order of 70 pastes at 200 ms lag, about 1,750 at the 5-second alarm. The 201 does not mean the replica has the row."
+
+**"What do you page on?"** "Election longer than 30 seconds; outbox age; tombstone write failures on delete; lag bytes and milliseconds — not a green replication bit."
+
+### Expanded close talk track
+
+A 201 is a commit on the leader of one shard with the idempotency row; an edge read can still show a deleted paste for 60 seconds — about half a million serves on a hot key. I hash into 256 slots, run one shard at today's 350 commits a second, and at about 3,500 I would run four at about 875 each, each with its own replica. A dead leader is about 30 seconds of 503 on writes and cache misses, not a 404, and not a protocol I draw. The failures I am not fixing in this close are that 60-second edge and the async tail that can lose a 201. I am not adding a second writer region or a body merge to make the diagram look finished. That is the data chapter.
+
+
+### Checklist the close must not reopen
+
+- Do not add a message bus for create.
+- Do not move interactive GET to the replica to "save" 87 reads/s.
+- Do not claim the edge is invalidated.
+- Do not salt the paste body.
+- Do not draw election votes.
+- Do not merge paste bodies with a CRDT story.
+- Do not shard at 17% utilization for aesthetics.
+
+Each item is a day you already passed. The close is remembering them under pressure, with the numbers: 350, 2,000, 60, 522,000, 30 seconds, 200 ms RPO lag as paste counts.
+
+### What staff sounds like at minute 58
+
+Three breaths. Guarantees per call. Partition plan with today's count and 10× count. The failure you accept without a new box. Then silence. Adding a fourth breath that invents a store is how staff slips to senior-plus-anxiety.
+
+
+### Caption the chapter card
+
+Caption: "Guarantees, partition plan, accepted failure — three lines, not twelve boxes." If the close diagram has more boxes than the day-26 pastebin, you reopened the chapter.
+
+**Hand-waving to kill in the last two minutes.** "We'll add Kafka for consistency." "We'll make the CDN strongly consistent." "We'll use CRDTs." "We'll run active-active for DR." Each is a day you already refused with numbers. Point at the day; do not re-argue from zero.
+
+
+### Final numbers strip
+
+116 / 350 writes · 17,400 reads · 8,700 × 60 = 522,000 · 256 slots · 1 shard today · 4 at 10× (~875/s) · 30s election · 200 ms / 5s RPO as paste counts · 5.3 GB idempotency / 25h · 16 GB inbox / 8d · WAL ~2.8 Mbit/s. Say three lines; keep this strip in your pocket.
 
 ## Kit artifact
 

@@ -122,6 +122,28 @@ Any SELECT that joins two shards is also outside a single transaction. The sweep
 
 A transaction that stays open while the app waits on the CDN purge is a lock you gave to a network. Keep BEGIN short. The outbox exists so the long work is not in the transaction. If your attempt has "BEGIN, delete row, purge CDN, COMMIT," open it again. The purge is the worker. The transaction ends before 204.
 
+
+
+
+### Staff depth: the shard is the world
+
+A transaction that stops at the shard is not a limitation you apologize for. It is the boundary that keeps day 37's idempotency key and day 39's outbox in the same commit as the paste. Cross that boundary and you inherit day 41's saga whether you drew the boxes or not. Staff says the boundary first, then the isolation level, then what is forbidden to put inside BEGIN.
+
+**Isolation, chosen for the anomaly you fear.** The anomaly on create is two retries both inserting. A unique constraint on the idempotency key kills that anomaly under read committed or repeatable read once both transactions try to commit. Serializable will also kill it, and will additionally abort transactions that never touched the same key when the engine's SSI detects a dependency you do not care about. At ~350 creates/s that abort tax is unnecessary theater. Name the anomaly. Pick the weakest level that closes it. Do not "upgrade" isolation because the interview room likes the word.
+
+**Inside BEGIN on create.** Insert or find idempotency row; insert paste row; commit. The object PUT completed before BEGIN (day 14/37). Holding the transaction open across the PUT pins a connection and a slot for a network write that can take a second. At 200 create slots from day 19, a 1-second PUT held inside BEGIN is how you exhaust the primary's working set while waiting on the bucket.
+
+**Inside BEGIN on delete.** Delete paste row; insert outbox row; commit. Then tombstone (day 33). Then 204. Purge and object delete are the worker's problem. A BEGIN that waits on the CDN is a delete that fails when a POP is slow, which is the coupling you refused.
+
+**The id is the fence against cross-shard transactions.** Slot prefix means GET, DELETE, and the idempotency lookup land on one primary. An API that "moves" a paste to another user's shard would need to copy, dual-write, and then delete — a saga. Refuse the move. If product forces it, schedule a migration job; do not open two BEGIN blocks and hope.
+
+**Long transactions are self-inflicted outages.** A sweeper that locks 10,000 expiring rows in one transaction stalls creates that need unrelated row locks on the same heap pages and raises replication lag. Cap the batch: hundreds of rows, commit, repeat. More round trips beat one multi-second lock. At 350 creates/s, a 5-second stop-the-world sweeper is ~1,750 creators waiting.
+
+**10× does not change isolation.** Four shards at ~875 commits/s each still use the same level. Serializable abort rates get worse with concurrency — another reason not to "upgrade" because traffic grew. The key and the shard count grow. The transaction shape does not.
+
+What staff sounds like: listing every row inside the transaction, every network call left outside, and the move API you will not offer because it is a saga in disguise.
+
+
 ## Diagrams
 
 ### The boundary
@@ -140,6 +162,17 @@ flowchart LR
 
 Solid is atomic. Dotted is ordered but not atomic with the rows. The link that stops is the refusal.
 
+
+Caption: "BEGIN ends at the shard box; PUT and purge sit outside." If an arrow from BEGIN reaches the bucket, you drew the stall.
+
+## Failure the user sees
+
+**Create with PUT inside BEGIN, bucket slow.** Creators hang until timeout; slots fill; unrelated creates 503. The bucket blip became a primary outage.
+
+**Delete waiting on purge inside the request.** Owner's DELETE 504s when one POP is sick; row may or may not be gone; retries multiply confusion. Outbox-after-commit avoids this.
+
+**Cross-shard "transaction" attempted in the app.** Partial success: paste on shard A, idempotency on shard B missing after a crash. Retry creates a second paste. The user has two links and no idea why.
+
 ## Trade-offs
 
 **Choice.** Repeatable read. Unique constraints. Create and delete transactions stop at the shard. PUT and purge stay outside. Cross-shard moves refused by the id encoding.
@@ -147,6 +180,8 @@ Solid is atomic. Dotted is ordered but not atomic with the rows. The link that s
 **Alternative.** Serializable everywhere, or a distributed transaction for anything that looks related.
 
 **What you give up.** The ability to move a paste without a saga. The ability to hold a lock across a network call. You keep create and delete free of dual-write holes inside the shard, and you keep unrelated creates from serializing behind each other.
+
+**Name the refusal inside each alternative.** Against serializable everywhere: you refuse abort tax on unrelated creates. Against BEGIN across PUT: you refuse pinning the primary on a blob store. Against BEGIN across purge: you refuse delete coupled to CDN health. Against two-phase commit for a move: you refuse a protocol that is a saga with extra coordinator failure modes. Against a directory lookup per GET to find the shard: you refuse a second system on the read path when the id can carry the slot.
 
 **10×.** 3,500 creates/s across four shards is still ~875/s per shard. Repeatable read holds. Serializable abort rates get worse with concurrency. That is another reason not to "upgrade" isolation because traffic grew. The key and the shard count grow. The isolation level does not.
 
@@ -158,9 +193,36 @@ Solid is atomic. Dotted is ordered but not atomic with the rows. The link that s
 
 **If they ask about the object store in the transaction.** You cannot. The object store does not join your BEGIN. The order PUT-then-commit, and the reaper, is the substitute for atomicity across that boundary. Say the orphan failure. Do not call it ACID.
 
+**If they ask why not serializable.** "The anomaly I fear is two retries inserting. The unique key closes it. Serializable aborts work that never touched that key."
+
+**If they ask what is in the transaction.** "On create: paste and idempotency rows. On delete: row gone and outbox row. PUT and purge stay outside."
+
+**If they ask how you move a paste across shards.** "I don't, in the request path. That is a migration or a saga. The id encodes the slot so I refuse to pretend BEGIN can span two primaries."
+
+
 ## Say this in the room
 
-A create commits the paste row and the idempotency row in one transaction on one shard, under repeatable read, with a unique key so two retries cannot both insert. A delete commits the removal and the outbox row the same way, with a row lock so two deletes of one id do not both succeed. The object PUT and the CDN purge stay outside that transaction on purpose. I will not BEGIN across two shards, and the id encodes the slot, so I refuse a move rather than invent two-phase commit. If something must cross shards later, that is a saga, not a longer BEGIN.
+A create commits the paste row and the idempotency row in one transaction on one shard, under repeatable read, with a unique key so two retries cannot both insert — I do not need serializable for that anomaly. A delete commits the removal and the outbox row the same way. The object PUT and the CDN purge stay outside that transaction on purpose so a slow bucket or POP cannot pin the primary. I will not BEGIN across two shards, and the id encodes the slot, so I refuse a move rather than invent two-phase commit. If something must cross shards later, that is a saga, not a longer BEGIN. Long sweeper batches that lock thousands of rows are a self-inflicted stall at 350 creates a second.
+
+### Cross-shard fantasies you will hear
+
+**"We'll use a transaction manager."** 2PC across shards: coordinator failure blocks; latency is sum of prepares; abort storms under load. You bought a distributed systems product to avoid encoding a slot in an id. Keep the slot.
+
+**"Read committed is never enough."** Enough for what? Lost update on two counters needs a different design (day 32/42). Phantom reads on a range you do not query do not matter. Match isolation to the query shape.
+
+**Connection pool math.** Each in-flight transaction holds a connection. BEGIN across a 1-second PUT at 350 creates/s wants 350 connections on the primary for blob waits alone. Postgres default limits and day 8's pool sizing collapse. Outside-PUT is a pool design, not only a consistency design.
+
+**Sweeper fairness.** Schedule expiry work in small transactions interleaved with creates. A dedicated sweeper login with a statement timeout still must commit often. Measure create p99 while sweeper runs; if it climbs, the batch is too big.
+
+
+
+### More on the boundary
+
+**Idempotency + outbox colocation is why the boundary matters.** If the key were on another service, create becomes day 41. If the outbox were in another database, delete becomes a dual write again. The shard boundary is load-bearing for both lessons.
+
+**Read-only transactions.** A GET that starts a transaction "for consistency" and then calls the bucket holds a snapshot while doing network I/O. Prefer point reads without an open transaction wrapping the blob GET. The row check and the byte GET are ordered; they need not share one BEGIN.
+
+**Savepoints and partial rollback.** Useful inside a complex local transaction; not a substitute for cutting the transaction at the shard. Do not invent nested distributed savepoints in the room.
 
 ## Kit artifact
 

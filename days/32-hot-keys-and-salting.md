@@ -84,6 +84,27 @@ The sum is a fan-in. If you display the count on every GET, you just put 8 or 16
 
 Delete of the paste does not need to delete the counter in the same transaction. The counter shards are a different map. A saga, later, can drop the salt rows. Until then a deleted paste's count sitting for the counter's TTL is harmless because you do not show a count for a 404. Say the cross-shard delete is not atomic. Do not pretend the salt rows commit with the paste row. They are not on that shard.
 
+**Where the increment runs.** Off the GET path. A sampled write from a metrics pipeline or a probabilistic client beacon is about **87/s** and never blocks the body. An exact increment in the request path makes every celebrity viewer wait on a counter shard. Even at 1 ms average, Little's law at 8,700/s is about **9** counter operations in flight per millisecond of service time — fine until the shard hiccups and the GET latency distribution becomes the counter's. Put the write behind the response.
+
+**Closed set resizing.** Moving from 8 salts to 16 means readers must know N. If half the fleet still sums 8 rows while writers use 16, you undercount. Deploy readers with N'=16 first (sum pads missing salts as zero), then writers, or accept a window of wrong totals. This is why N is a config with a deploy order, not a constant you change in one process.
+
+
+### Work the three layouts against the same 8,700
+
+Staff does the arithmetic in the room before picking a branch. Same celebrity: **8,700 increments/s**.
+
+| Layout | Partition key | Commits on busiest primary | Fits 2,000 ceiling? |
+|---|---|---|---|
+| One row on paste shard | `id` | 8,700 | No — 4.3× over |
+| 16 salts, key still `id` | `id` | 8,700 (locks cooled to ~544/row) | No — primary still on fire |
+| 16 salts, key `(id, salt)` on 4 paste shards | `(id, salt)` | ~2,175 from this key alone | No — over before ordinary creates |
+| Exact counter, 8 dedicated shards | `(id, salt)` | ~1,090 | Yes, for the counter only |
+| Sample 1 in 100 on paste shard | `id` | ~87 | Yes, with room |
+
+The table is the design. Salting without changing the partition key is the row that fools attempts. Dedicated shards are the honest exact branch. Sampling is the branch you recommend because 87 writes/s leaves the paste primary a paste primary.
+
+**Fan-in tax if you display the exact sum on every GET.** 8,700 GETs/s × 16 salts = **139,200** counter reads/s unless you cache the sum. Cache the sum for a few seconds and the displayed number is stale by that window — the same class of lie as the sample branch, paid with eight counter shards. Say which lie you are buying.
+
 ### What a celebrity key is, in one line
 
 It is a key whose traffic does not shrink when you add shards, **unless the key itself contains a factor you are allowed to spread.** The paste id does not contain that factor. `(id, salt)` does, and only for a value you are allowed to reassemble by a commutative sum. A view count sums. A paste body does not. Stock that must not go negative does not either, but that is a different problem on a different day. Do not reach for it here.
@@ -103,6 +124,18 @@ flowchart TB
 
 The left path is the attempt that felt like salting and did not change the partition.
 
+Caption: "Same salt count, two partition keys." The left arrow still dumps 8,700 commits on one shard. Circle the partition key on both paths before you talk about row locks.
+
+## Failure the user sees
+
+**Exact counter on the paste shard, no salt.** At 8,700 updates/s the row lock and the commit ceiling melt together. Creators of *other* pastes on that shard see elevated commit latency and 503s; viewers of the celebrity paste see timeouts on the increment path if you put it on the GET. The failure spills sideways: one viral paste takes down a quarter of creates on a four-shard deployment if that celebrity landed on a busy shard.
+
+**Sampled counter.** Displayed views jump in steps of 100. A paste with 50 real views may show 0 or 100. Users argue in comments. You said "sample, not ledger" in the API. If you did not, this looks like a bug.
+
+**Exact counter, sum recomputed per GET.** Latency climbs; under load the fan-in becomes the outage. Users see spinners on a page whose body already arrived from the edge.
+
+**Salted body (the refusal).** Some readers 404 a live paste because they asked the wrong salt; others fan out 16 reads. Either the product looks flaky or you rebuilt a scatter query on the path you spent a month making a point read.
+
 ## Trade-offs
 
 **Choice.** No exact counter on the GET. If forced: a closed salt set, partition key `(id, salt)`, shards that are actually under the 2,000 ceiling, fan-in on read, cached sum. Prefer a 1-in-100 sample on the paste's own shard instead.
@@ -110,6 +143,8 @@ The left path is the attempt that felt like salting and did not change the parti
 **Alternative.** One row, `views + 1`, and "the database will handle a hot row."
 
 **What you give up.** An exact number, or, on the exact branch, a single-shard transaction and a cheap GET. You keep the paste lookup as one id, one slot, one body.
+
+**Name the refusal inside each alternative.** Against one row `views+1`: you refuse 8,700 commits/s on one primary against a 2,000 ceiling. Against salting with partition key still `id`: you refuse a cool lock on a burning shard. Against salting the paste body: you refuse a scatter GET or a body nobody can find. Against putting exact counters on the four paste shards: you refuse 2,175 commits/s per shard from one key before ordinary traffic. Against recomputing the fan-in on every GET: you refuse 139,200 counter reads/s. Each refusal names the QPS.
 
 **10× on the celebrity, not on the site.** If the hot paste is half of 10× reads, the increment is **87,000/s**. Sampled at 1 in 100 that is **870 writes/s**, still one row, still under 2,000, uncomfortable, and honest. Exact, you are at `ceil(87,000 / 2,000)` = **44** counter shards for one paste, which is the moment you say the feature is a pipeline, not a column. The refusal ages well. The salt count does not.
 
@@ -119,11 +154,23 @@ The left path is the attempt that felt like salting and did not change the parti
 
 **Hand-waving.** "Consistent hashing spreads hot keys." It spreads keys that differ. One id is one key. The hash is doing what you asked. You asked the wrong key.
 
+**Hand-waving.** "We'll use Redis INCR, it's made for this." Redis INCR on one key is still one hot key — now on a different process. Sharded Redis with the same `(id, salt)` story is the exact-counter branch with another logo. Name the shard count and the fan-in; do not stop at the brand.
+
+**If they ask whether reads of the celebrity melt the primary.** "With the metadata cache and edge up, no — those 8,700 hit cache and bytes. The primary melt is the increment, not the GET. Salting the paste to fix reads is the wrong patient."
+
+
+**If they ask why sampling is not lying.** "It is lying, on purpose, by a stated factor. Stored times 100 is the display. Exact is the expensive branch with its own shards and a cached sum that is also stale. I pick which lie fits the product."
+
+**If they ask how many counter shards for exact.** "Ceil of 8,700 over 2,000 is five as a minimum with perfect spread and zero other traffic. I would run about eight so each sits near 1,090 commits/s with room. That is a second slot map for one feature."
+
 **If they ask about the limiter.** A single NAT'd IP was already a hot limiter key on day 22. The same shape: salt only if you can sum the buckets back into one budget, and put the salt in the key the nodes hash. A salt the next request cannot find is a second, quieter budget, which means you over-admit.
 
 ## Say this in the room
 
-Half of peak is about 8,700 reads a second on one paste id, and that id is one slot, so those reads should hit the cache and adding shards does not move them. The melt is a view-count increment on that same id, 8,700 commits a second against a per-primary ceiling near 2,000. Salting into 16 rows only helps if the partition key is the id plus the salt, and if the key is still the id I only cooled the row lock. I would rather sample one write in a hundred, about 87 a second, and call the number a sample. An exact count wants its own shards and a fan-in I will not put on every GET.
+Half of peak is about 8,700 reads a second on one paste id, and that id is one slot, so those reads should hit the cache and adding shards does not move them. The melt is a view-count increment on that same id, 8,700 commits a second against a per-primary ceiling near 2,000. Salting into 16 rows only helps if the partition key is the id plus the salt; if the key is still the id I only cooled the row lock and the shard still commits 8,700. On four paste shards even a correct salt lands about 2,175 commits a second per shard from this key alone, over ceiling before ordinary creates. I would rather sample one write in a hundred, about 87 a second, and call the number a sample. An exact count wants about eight counter shards and a fan-in I will cache rather than put 139,200 reads a second on every GET.
+
+
+**What staff sounds like.** The layout table against 8,700: one row melts, salt without partition-key change cools the lock only, four paste shards still over ceiling, sample at 87/s is the recommendation, exact needs ~eight counter shards and a cached sum. Body salting refused because GET must stay a point read.
 
 ## Kit artifact
 

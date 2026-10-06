@@ -90,6 +90,21 @@ If they insist on local creates in both regions for latency: region-sticky idemp
 
 It does not mean the EU region is cold and powered off. The replica is applying WAL. The bucket replication is on. A promotion you have never practiced will not finish in 5 minutes. The 5 minutes assumes a drill. You do not design the drill on the whiteboard. You do not call an untested replica "passive HA."
 
+
+### Staff depth: idempotency forbids the second writer
+
+Active-passive: one writer region; far-region creates pay ~150 ms RTT; CDN keeps public reads local. WAL ~1 Mbit/s average and bodies ~9 Mbit/s are **not** why you refuse active-active — **idempotency** is. A retry that lands in the other region misses the key and saves a second paste. Merge on body is day 42's refusal. Sticky keys still fail open into two writers under a partition.
+
+**RPO ~5 s healthy; failover ~5 minutes** of create outage when the writer region dies. At 350 creates/s that is up to ~105,000 failed creates in a hard window; idempotent clients retry after the map flips. Without keys they double.
+
+**Sync cross-region commit** on every 201 couples regions into one failure domain and adds a RTT to every create — you paid the latency you fled without simplifying idempotency.
+
+**Passive is not idle.** Edges everywhere; after failover the former passive becomes writer with a fence. Interactive GET still does not read lagging replicas (day 34).
+
+**Name the refusal inside each alternative.** Against active-active for latency: you refuse breaking idempotency across regions. Against sync cross-region commit: you refuse coupling regions and adding RTT to every 201. Against reading interactive GETs from the passive: you refuse day 34's false 404s. Against pretending bandwidth forced multi-master: you refuse a 1 Mbit/s WAL story upgraded into a merge product.
+
+**10×.** WAL ~10 Mbit/s; bodies ~93 Mbit/s; failover blocks ~1,160/s × 300s ≈ 348,000 attempts. Bandwidth still does not force active-active.
+
 ## Diagrams
 
 ### Writes one way, reads mostly at the edge
@@ -108,6 +123,14 @@ flowchart LR
 
 Readers do not need the EU replica for a hot paste. The replica is for promotion and for a lagging origin read you still mostly refuse.
 
+
+Caption: "Writes one way; reads mostly at the edge." Write RPO and failover minutes on the picture.
+
+## Failure the user sees
+
+**Writer region down, 5 minutes.** Creates 503; hot reads continue from edge; cold origin reads 503 for ids that miss cache. After promotion, retries with keys succeed once; without keys, duplicates.
+
+**Active-active partition.** Two pastes for one save; or conflicting bodies if edit exists. User sees split links or silent loss under LWW.
 ## Trade-offs
 
 **Choice.** Active-passive. One writer region. Async metadata and bucket replication. RPO about 5 seconds when healthy. Create outage about 5 minutes when the writer region dies. EU creates pay about 150 ms.
@@ -126,9 +149,36 @@ Readers do not need the EU replica for a hot paste. The replica is for promotion
 
 **If they ask who is authoritative for new writes during failover.** The promoted region, after the fence. Not both. Not "whichever client reaches."
 
+**If they ask why not write locally in Europe.** "About 150 ms to the writer region beats a second paste when a retry hits another primary, and the CDN already made public reads local."
+
+**If they ask the failover cost.** "About 5 minutes of create outage and about 5 seconds of RPO when healthy. Idempotent clients retry; others may double."
+
 ## Say this in the room
 
-I keep one writer region: Europe's creates pay about 150 milliseconds to reach it, and the CDN already makes public reads local, so I am not standing up a second primary for GET. Replication of the WAL is about a megabit a second, and the bucket about 9 megabits, so this is not a bandwidth decision. If the writer region dies I budget about 5 minutes of create outage and about 5 seconds of tail the survivor may never see, for both rows and objects. I do not take writes in both regions, because a retry would miss the idempotency key on the other side and save a second paste. Active-active would need a merge I refused.
+I keep one writer region: Europe's creates pay about 150 milliseconds to reach it, and the CDN already makes public reads local, so I am not standing up a second primary for GET. Replication of the WAL is about a megabit a second, and the bucket about 9 megabits, so this is not a bandwidth decision — idempotency is: a retry in another region would miss the key and save a second paste. If the writer region dies I budget about 5 minutes of create outage and about 5 seconds of tail the survivor may never see. I do not take writes in both regions, and I do not buy sync cross-region commit just to avoid the 150 ms.
+
+### Failover runbook in numbers
+
+Healthy RPO ~5 seconds ≈ 350×5 = **1,750** creates the survivor may miss if the old region never ships them. Failover create outage ~5 minutes ≈ 350×300 = **105,000** failed attempts at peak; with day 37 keys they collapse on retry after DNS/map flip. Status page: "Creates unavailable in region X; existing pastes readable from cache/edge; retry with the same key."
+
+**Why sticky active-active still loses.** Client retries after timeout often change POP and sticky affinity. The second region has no idempotency row. Two pastes. Sticky is a hope; the key on one writer is a guarantee.
+
+**Sync replication tax.** Every 201 waits on the far region. Far-region latency becomes everyone's create latency. You also couple availability: far region down means creates fail everywhere unless you break sync and accept a fork.
+
+
+
+### Probes and failures (regions)
+
+**If they ask about read replicas in the passive region.** "Not for interactive origin GET — day 34. Edge serves the public read. Replicas might feed analytics I am not designing today."
+
+**If they ask to sync every commit.** "Then every create waits on the far region and both regions must be up. I paid the latency and coupled availability. Async + fence on failover is the trade I am taking."
+
+**User sees during failover.** Creates fail fast with 503; cached pastes work; after flip, same idempotency key returns the same paste instead of a duplicate.
+
+
+### Talk track denser
+
+One writer region; ~150 ms far create; CDN for reads; WAL ~1 Mbit/s not the argument — idempotency is. RPO ~5s; failover ~5 min of create 503. Active-active breaks the key or demands a merge you refused. Sync cross-region commit couples availability and adds RTT for everyone.
 
 ## Kit artifact
 

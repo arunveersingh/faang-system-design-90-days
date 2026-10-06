@@ -56,7 +56,7 @@ You depend on three things the database already ships, and you will not re-deriv
 - a **log**, so a replica can become leader without inventing a past,
 - an **election window**, during which there is no leader and you do not write.
 
-Those three words are the whole protocol content of this day. The appendix on Raft exists so the words mean something if you read them later. Deriving terms, votes, and commit indexes in the room is how you spend the hour not designing the pastebin. If they ask "how does the election work," the answer is: "I treat it as a dependency with a timeout. I will not implement it. If we have to discuss the paper, it is after this loop, not instead of the 503."
+Those three words are the whole protocol content of this day. The appendix on Raft exists so the words mean something if you read them later. Deriving terms, votes, and commit indexes in the room is how you spend the hour not designing the pastebin. If they ask "how does the election work," the answer is: "I treat it as a dependency with a timeout. I will not implement it. If we have to discuss the paper, it is after this interview, not instead of the 503."
 
 The user-visible contract during the window has to match day 29. A missing leader is not a missing paste.
 
@@ -89,6 +89,21 @@ The old leader comes back, or it was never dead, only slow, and a new leader has
 
 Apps must also move. A connection string baked into four processes, edited by a deploy, is not a 30-second failover. Something the apps already refresh, a proxy or a small map, has to learn the new leader. One sentence. Do not design the control plane. Do not put leader election **in the app**. Four app processes electing a writer is how you get four writers. The database elects. The apps follow.
 
+**What "30 seconds" includes.** Detection that the leader is gone, election, fence installation, map or proxy update, first successful commit on the new leader. If detection alone is 20 seconds because your health check is polite, you do not have 10 seconds left for the rest. Split the budget when they push: say ~10s detect, ~10s elect and fence, ~10s map. The exact split is vendor-specific; the insistence on a number is not.
+
+**Create vs read during the window, as a status sentence.** "Pastes that were already popular still load; new pastes and uncached pastes fail until the database has a writer again, usually under a minute." That is what you put on the status page. "Degraded" without the split sends everyone to flush caches.
+
+
+### User-visible counts during the window
+
+**Today, one shard.** Peak creates ~350/s × 30 s ≈ **10,500** failed creates if every attempt hard-fails. Cache-miss reads ~87/s × 30 ≈ **2,600** of 503s on the miss path; edge and cache hits continue (~16,530/s edge still serving). The site looks "up" for hot pastes and "down" for creates and cold reads. Say that split or on-call will flush the cache and make it worse.
+
+**Four shards at 10×.** One leader down: ~25% of ids. Peak creates on that shard ~875/s × 30 ≈ **26,000** failed creates for that quarter; the other three keep ~2,625 creates/s. Partial failure is the point of the split. A single red/green status bit lies.
+
+**Retry during the window.** Client auto-retry without idempotency: when the leader returns, each user who hammered POST may get **multiple pastes**. The election did not cause the duplicates; the retry policy did. Day 37's key makes retry through the window safe. Until then, wait and retry once, or accept duplicates.
+
+**Aggressive election timeouts.** A leader that is slow, not dead, gets replaced while still accepting writes. Without a fence you have two writers. The cure for a long window is not a 1-second timeout; it is a fence and a map refresh inside a budget you will page on.
+
 ### What you refuse to draw
 
 Votes. Randomized election timeouts. Who is a candidate. Log matching. Commit index. A picture of five circles and a term number. If the interviewer wants that, they wanted a consensus round, and the curriculum put that round in the appendix on purpose. You can say: "The vendor's Raft group, or the managed primary, is the dependency. I budget 30 seconds without it. I fence the old writer. I 503 the calls that need an order." Then stop talking.
@@ -112,6 +127,16 @@ flowchart TB
 
 Nothing in that picture is a protocol. If your picture has arrows labeled RequestVote, you left the lesson.
 
+Caption: "503 on write and miss; hits keep serving; fence before resume." RequestVote arrows mean you left the lesson.
+
+## Failure the user sees
+
+**Leader gone, 30 seconds.** Creator: 503, no link. Cold reader: 503, not 404. Hot reader: body from edge/cache. Owner deleting: 503. After promotion, creator who retried without a key may have two pastes.
+
+**Old leader not fenced.** Two writers accept inserts. Same idempotency key on divergent logs: two pastes or two orders. Cache fills flip. User sees flickering content or duplicate links.
+
+**Apps still pointed at the old leader.** Election succeeded; traffic did not. Creates keep 503ing against a dead endpoint, or hit a zombie still accepting writes. Map refresh is part of the 30-second budget.
+
 ## Trade-offs
 
 **Choice.** One leader per shard, bought from the database. Writes and authoritative reads fail closed for about 30 seconds. Old leader fenced by epoch. Apps follow a map, they do not elect.
@@ -122,6 +147,8 @@ Nothing in that picture is a protocol. If your picture has arrows labeled Reques
 
 **When the alternative wins.** If 30 seconds of create outage is unacceptable **and** they will not accept a synchronous replica that becomes the failover target faster, you are in the leaderless design and you should say so cleanly. You do not hybrid them: a leader plus a sloppy quorum on the side is two orders. This pastebin tolerates 30 seconds of 503. It is not a payments switch. Do not import a payments availability target into a paste.
 
+**Name the refusal inside each alternative.** Against electing a writer in the app: you refuse four processes becoming four writers. Against queuing creates on the app during the window and returning 201: you refuse a second log the new leader will not know. Against tombstoning a delete you did not commit: you refuse a cache lie undone by the next fill. Against drawing Raft in the room: you refuse spending the hour on votes instead of the 503. Against silently lengthening the 30-second budget: you refuse a contract you will not page on.
+
 **10×.** Four leaders, four independent windows. A single election takes down a quarter of ids, not the site. That is better for the user who was not on that shard, and it is four times the elections to drill. You still do not draw the protocol four times.
 
 ## Talking points
@@ -130,11 +157,26 @@ Nothing in that picture is a protocol. If your picture has arrows labeled Reques
 
 **Hand-waving.** "The cluster is highly available, so writes proceed." Proceed on which node, with what fence? If you cannot name the node, both are proceeding.
 
-**If they ask for the paper.** "Appendix, after the loop. The part I use is leader, log, and an election window. I am not deriving it, and I am not proposing we write our own."
+**Hand-waving.** "Failover is transparent." Transparent to whom? The creator who got 503 for thirty seconds did not experience transparency. Transparent means the client retries with a key, not that the hole was zero.
+
+
+**If they ask what the user sees for 30 seconds.** "Creates and cache-miss reads 503 — about 10,500 failed creates at peak on one shard. Hot pastes keep loading from the edge. I do not flush the cache."
+
+**If they ask how you prevent two leaders.** "A fencing epoch the storage checks. Belief is not a commit. Apps follow a map; they do not elect."
+
+**If they ask for the paper.** "Appendix, after the interview. The part I use is leader, log, and an election window. I am not deriving it, and I am not proposing we write our own."
 
 ## Say this in the room
 
-Each shard has one leader, which I buy from the database instead of electing in the app. While there is no leader I return 503 on create, delete, and cache-miss reads, I keep serving cache and edge hits, and I budget about 30 seconds before I page rather than quietly lengthening the budget. The old leader has to be fenced by an epoch the storage checks, or it will commit next to the new one and fork a row. I will not draw votes, terms, or log matching. That protocol is a dependency with a timeout, and the paper lives in the appendix.
+Each shard has one leader, which I buy from the database instead of electing in the app. While there is no leader I return 503 on create, delete, and cache-miss reads — about 10,500 failed creates in a 30-second window at peak on one shard — I keep serving cache and edge hits, and I page if we exceed 30 seconds rather than quietly lengthening the budget. On four shards a single election takes about a quarter of ids, not the site. The old leader has to be fenced by an epoch the storage checks, or it will commit next to the new one and fork a row. Client retries without an idempotency key become duplicate pastes when the leader returns. I will not draw votes, terms, or log matching. That protocol is a dependency with a timeout, and the paper lives in the appendix.
+
+
+**What staff sounds like.** Naming the hole in user counts — about 10,500 failed creates in 30 seconds at peak — before drawing any circles. Fencing as a storage check, not a runbook. Apps follow a map. Partial failure on four shards is a quarter of ids, and the status page says so. The paper stays in the appendix.
+
+
+### Status page sentence
+
+"New pastes and uncached reads fail until the database has a writer again (usually under a minute). Popular pastes keep loading from the edge. Retry create once with the same idempotency key when we recover." That split stops on-call from flushing caches into a stampede.
 
 ## Kit artifact
 
