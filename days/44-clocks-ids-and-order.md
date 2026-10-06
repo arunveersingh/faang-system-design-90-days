@@ -90,6 +90,19 @@ NTP is an assumption: in a healthy region, skew is on the order of **millisecond
 
 A Lamport clock is a counter. You increment on every local event and on every message you receive (`max(local, received) + 1`). It gives you a partial order of things that communicated. It does not give you seconds, so it cannot expire a paste. It does not totally order two creates that never interacted. You have no call that needs "paste A caused paste B." Do not draw one. If they ask "how would you order events without trusting wall clocks," the sentence is: Lamport or a hybrid logical clock for the events that actually pass messages, and the leader's log for events on one shard. Then stop. The pastebin's events on one shard already have that log.
 
+
+### Staff depth: mint order is not commit order
+
+Keep random ids. Nothing you serve sorts by id. A time prefix is guessable and still not commit order: a slow PUT can commit after a later-minted id. Expiry uses the primary's clock inside the create transaction from the duration the client sent — not an app server's `now()`.
+
+**Snowflake under skew.** Two machines 100 ms apart mint ids that sort wrong relative to commit. At 350 creates/s the bug is not sequence overflow; at 10× you average ~3.5 ids/ms — still not overflow. The bug is skew and reorder. Say that when they force time-ordered ids.
+
+**TrueTime.** Refuse building it. Vendor commit timestamps with bounded uncertainty may help audit; they do not justify time-ordered URLs.
+
+**Backward clock step.** Can un-expire or double-expire. Primary clock must not step backward for expiry. The 60-second edge remains the larger product lie.
+
+**Lamport.** Only if they require causal cross-object order you do not have an API for. Do not introduce logical clocks to look distributed.
+
 ## Diagrams
 
 ### Two orders that are not the same
@@ -107,6 +120,16 @@ flowchart LR
 
 The dotted edge is the bug if anyone treats mint order as commit order. You have no endpoint on the dotted edge. Keep it that way.
 
+
+Caption: "Mint order and commit order diverge when PUT is slow."
+
+## Failure the user sees
+
+**Time-ordered ids, attacker enumerates.** Nearby pastes guessed. Privacy failure.
+
+**App-server expiry clock skewed.** Paste expires early or late vs what the user set. Primary clock inside the transaction avoids that.
+
+**Sorting UI by id.** Looks like create order; is not. Users argue about "what came first."
 ## Trade-offs
 
 **Choice.** Random ids. Expiry from the primary's clock inside the transaction. No snowflake. No TrueTime. Reorder of mint versus commit is real and unobservable here.
@@ -114,6 +137,8 @@ The dotted edge is the bug if anyone treats mint order as commit order. You have
 **Alternative.** Time-ordered ids so logs and a future list sort.
 
 **What you give up.** Sortable URLs. You keep unguessable ids and you keep expiry independent of app-server clocks. If they force the alternative, you name skew, backward steps, and the commit-versus-mint reorder, and you still would not sort a user-facing page by that id.
+
+**Name the refusal inside each alternative.** Against snowflake URLs: you refuse guessability and false sort order. Against app-server `now()` for expiry: you refuse skew across processes. Against building TrueTime: you refuse a research project for a pastebin. Against Lamport without a causal API: you refuse decoration.
 
 **10×.** 3,500 creates/s is still under one id per millisecond on average (3.5 per ms). Sequence overflow is still not the problem. Guessability of a time prefix does not improve with scale. It gets worse, because the sequence space per millisecond fills and a miss in your model becomes a hit in theirs. Another reason the random id scales without a new clock.
 
@@ -125,9 +150,38 @@ The dotted edge is the bug if anyone treats mint order as commit order. You have
 
 **If they ask for Spanner.** "External consistency needs a clock bound I am not going to invent. The appendix is where that lives. Here, one primary's log orders a shard, and I do not pretend two regions' wall clocks do."
 
+**If they ask about sortable ids for logs.** "Logs can carry commit LSN or a server timestamp beside a random id. The URL stays random."
+
+**If they ask about overflow.** "At 3,500 creates a second I average a few ids per millisecond. Skew is the bug, not the sequence width."
+
 ## Say this in the room
 
-I keep random ids because nothing I serve sorts by id, and a time prefix is guessable and still not commit order. Expiry is a timestamp the primary writes from its own clock inside the create, from the duration the client sent, not from an app server's now. If I were forced into snowflake ids, the bug at 350 creates a second is not sequence overflow: it is two machines skewed by 100 milliseconds, or a slow PUT that commits after a later id. I will not build TrueTime. A backward step of the primary clock can un-expire a paste, so that clock must not step backward, and the 60-second edge is still the larger lie.
+I keep random ids because nothing I serve sorts by id, and a time prefix is guessable and still not commit order — a slow PUT commits after a later mint. Expiry is a timestamp the primary writes from its own clock inside the create, from the duration the client sent, not from an app server's now. If I were forced into snowflake ids, the bug at 350 creates a second is not sequence overflow: it is two machines skewed by 100 milliseconds, or a slow PUT that commits after a later id. I will not build TrueTime. A backward step of the primary clock can un-expire a paste, so that clock must not step backward, and the 60-second edge is still the larger lie.
+
+### Ordering bugs you can demo
+
+**Demo 1.** Mint id T1, slow PUT, mint id T2, T2 commits first. Time-sorted list shows T2 then T1. Random ids do not pretend.
+
+**Demo 2.** App server clock −5 minutes writes `expires_at`. User asked for 30 days; paste dies in 30 days minus five minutes relative to primary — or worse if primary and app disagree on absolute time. Primary clock in the transaction fixes it.
+
+**Demo 3.** Primary clock steps backward one hour after NTP. Pastes that should be dead become live (or the reverse). Monotonicity for the expiry clock is an ops requirement; say it.
+
+
+
+### Failure and probes (clocks)
+
+**Guessable time ids.** Scrapers walk nearby ids; private pastes leak. Random ids remove the oracle.
+
+**UI sorted by id.** Users trust false chronology after slow PUTs reorder commits vs mints.
+
+**If they ask for snowflake anyway.** "I will name skew, backward steps, and mint-vs-commit reorder, and I still will not sort a user-facing page by that id."
+
+**If they ask about Lamport.** "Only if you require causal order across objects. We have no such API. I will not draw logical clocks for decoration."
+
+
+### Talk track denser
+
+Random ids; expiry from primary clock in the create transaction; refuse snowflake URLs as guessable and not commit-ordered; refuse TrueTime; refuse Lamport without a causal API. Backward primary clock steps are an ops incident for expiry. The 60-second edge remains the larger lie.
 
 ## Kit artifact
 
