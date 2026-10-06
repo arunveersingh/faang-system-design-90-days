@@ -96,7 +96,20 @@ What this does to in-flight work:
 
 **SIGKILL** as a deploy is the anti-pattern. It treats every in-flight create as a crash. Draining is the fix.
 
+Two details make or break the drain, and both are where real rollouts produce errors:
+
+- **Keep the listener open during step 2.** Not ready is a flag the balancer reads, not a closed socket. For the two seconds before the balancer notices, new connections still arrive. A process that closes its listener on `SIGTERM` turns those into connection-refused errors for every client that landed in the window. At about 4,350 reads a second per process, two seconds is roughly 8,700 requests. Serve them; they are short.
+- **Close keep-alive connections on purpose.** The balancer holds a pool of idle HTTP connections to each app. A draining process answers its last requests with `Connection: close` so those pooled connections migrate to the other three instead of being reset mid-reuse. Skip this and the "clean" drain still produces a burst of resets that look like a network problem.
+
+Total rollout time is arithmetic too: about 2 seconds to be noticed, up to 5 to drain, plus however long the new process takes to pass ready. Call it under 30 seconds per process and a couple of minutes for four. Fast enough that "deploy during the trough" is a preference, not a requirement.
+
 You drain before a machine leaves, not only before a binary leaves. A balancer that keeps sending to a process you are about to delete is how a rolling update becomes a 10% error rate you call "deploy noise."
+
+### When least connections lies
+
+Least connections has one failure mode a staff interviewer probes for. A process that fails fast, returning 500 in a millisecond because its path to the data host broke, finishes every request immediately. It always has the fewest open connections. So the balancer sends it **more** traffic, not less. One broken app can eat far more than a quarter of the requests: a black hole that the policy rewards.
+
+The shallow ready check does not catch it, by design; the process is alive. The fix is passive: the balancer watches the responses it already forwards and ejects a process whose 5xx rate jumps relative to its peers, for a short cooldown. Bound the ejection: **at most one of four** out at a time. If all four start failing together, that is the data host, and ejecting them would rebuild exactly the deep-health-check outage you refused. The bound is the difference between "isolate the odd one out" and "drain the tier because the database sneezed."
 
 ### What the balancer must not be
 
@@ -123,6 +136,8 @@ flowchart LR
 
 The dotted edge is the whole deploy story. In-flight on app 4 is not drawn as "deleted." Three ready processes are the headroom from day 8: 3×8,000 still clears peak.
 
+Caption it: "Dotted means no new work, not dead. Three solid edges carry 17,400 against 24,000." Write the policy on the edges, not in a legend. An edge labeled "least connections" is a decision; an unlabeled edge from a box called LB is a noun.
+
 ### Drain against the 201
 
 ```mermaid
@@ -141,6 +156,18 @@ sequenceDiagram
 
 If the 201 arrow is missing and the process exits anyway, say whether the row committed. That sentence is the difference between an error the client can retry and a paste that exists with no owner holding the link.
 
+Caption: "201 leaves before the exit, or the client never had the link." The order in the sequence is the guarantee. Draw the exit note after the 201 arrow, and say aloud that a budget which ends before the commit returns leaves an orphan body and an error, not a paste. Only a response lost after commit leaves a paste nobody holds the link to.
+
+## Failure the user sees, in front of the apps
+
+**A process crashes (not a deploy).** No drain. In-flight creates on it fail; some may have committed, and their retries become second pastes. Then the detection window: checks every 2 seconds, marked out after two misses, so up to about 4 seconds in which the balancer still sends new connections to a dead process. Those fail at connect. A balancer that retries a failed connect on another process hides them for reads; it must not retry a POST whose request body already reached the app, because that is the double-create you built drain to avoid. Users see a few seconds of errors on roughly a quarter of new requests, then nothing.
+
+**One app loses its path to the data host.** Process alive, ready check green, every request a fast 500. Without outlier ejection, least connections feeds it more and users see well over a quarter of requests fail. With bounded ejection, it is out within seconds and users see a short spike. Page on per-process 5xx skew, not only on the total.
+
+**The data host stalls for a few seconds.** All four apps return 500s or slow responses. Ready stays green on all four, which is correct: there is nowhere better to send traffic. Users see errors for the stall. If you had a deep check, they would see errors for the stall plus however long it takes four processes to flap back into rotation.
+
+**The balancer dies.** Nothing is reachable; every paste is intact. RPO zero, RTO is however long it takes to replace one stateless box. That is the honest sentence until they ask for the pair with a shared address.
+
 ## Trade-offs
 
 **Choice.** Least connections, shallow ready check, drain with a 5 second budget, one process at a time.
@@ -150,6 +177,8 @@ If the 201 arrow is missing and the process exits anyway, say whether the row co
 **What you give up.** Least connections is a vaguer spread than a hash you could simulate on paper. A shallow check will keep sending traffic to apps that are about to return 500 because the data host is sick. You accept those 500s so a sick dependency cannot empty the pool. The drain budget will cut a slow 1 MB download. That reader retries. You are not cutting to be cruel; you are bounding the deploy.
 
 **Why.** Round robin mis-loads max-size pastes. A deep health check couples membership to the database. Kill-and-replace turns every deploy into the double-create window you already dislike, multiplied by how often you ship.
+
+**Name the refusal inside each alternative.** Against round robin: you refuse it because it counts requests on a product whose cost is bytes, and the 1 MB cap is a hundred times the mean. Against the deep check: you refuse a membership rule that converts a dependency blip into "no eligible process." Against kill-and-replace: you refuse to make every deploy a crash for in-flight creates. Against hashing the id to a process: you refuse to turn a viral paste into a single-process incident for a locality you have no cache to exploit. Least connections earns its place only with bounded outlier ejection beside it; without that, it rewards the fastest failure.
 
 **10× break.** Peak reads at ~174,000. Least connections still works; the balancer itself must accept that many connections. A single small balancer CPU becomes the ceiling you did not have at 1×. Two balancers, or the TLS offload moving to a tier that is actually sized, is the fix. It is still not a cache. Do not "solve" a saturated balancer by pinning paste ids.
 
@@ -167,7 +196,17 @@ If the 201 arrow is missing and the process exits anyway, say whether the row co
 
 **If they ask about websockets or long polls.** You have none. Do not invent a 30-minute drain. The longest honest request is a 1 MB read on a slow link, and you cap it with the budget plus a server-side write timeout. Day 20 owns timeouts. Today, name the budget.
 
+**If they ask: "Least connections sends traffic to a broken box, doesn't it?"** "Yes, if it fails fast. A process returning instant 500s always looks least loaded. So the balancer ejects a process whose 5xx rate is out of line with its peers, one at a time at most. If all four fail together, that's the data host, and I keep them in."
+
+**If they ask why the process doesn't just stop listening on SIGTERM.** "Because the balancer takes about two seconds to notice not ready. Closing the listener turns those two seconds into connection-refused for every client in the window. Flag first, keep serving, close idle keep-alives, then exit after the budget."
+
+**If they ask whether the balancer should retry failed requests.** "Reads and connect failures, yes, once, on another process. A POST that reached an app, no. The balancer cannot know whether the row committed, and a blind retry is a second paste."
+
 **If they ask what you page on.** A process flapping ready. A deploy whose drain budget expires while creates are still in flight, counted. Error rate on the balancer. Not the 404 rate.
+
+## Say this in the room
+
+One balancer, least connections, because body sizes run from about 10 KB to the 1 MB cap and round robin counts requests, not bytes. Least connections rewards a box that fails fast, so the balancer ejects an outlier on 5xx skew, at most one of four; if all four fail, that's the data host and they stay in. The ready check is process-only. It never queries Postgres, because a database blip should be 500s, not an empty pool. Deploy one process at a time: flag not ready, keep the listener open the two seconds the balancer needs to notice, close keep-alives, finish in-flight creates within five seconds, exit. Three left is 24,000 against 17,400. Drain doesn't make create idempotent; it stops deploys from being the thing that loses a 201. The balancer retries reads, never a POST that reached an app. If the balancer dies, nothing is reachable and nothing is lost. I'd pair it when you ask.
 
 ## Kit artifact
 
