@@ -62,7 +62,7 @@ Each new box is a fix for a break in the pastebin, not a catalog of tools. Day 2
 | 23 | [Read path and write path](days/23-read-path-and-write-path.md) | Lesson | Facing one tangled picture, leave able to narrate the read path and the write path as separate sequences. |
 | 24 | [The order-of-magnitude break](days/24-the-order-of-magnitude-break.md) | Lesson | Facing a large jump in traffic, leave able to name the first component that breaks and the fix you would reach for next. |
 | 25 | [Failure overlay on the pastebin](days/25-failure-overlay-on-the-pastebin.md) | Lesson | Facing "what if this dies," leave able to overlay one dependency failure and the user-visible result. |
-| 26 | [End-to-end distributed pastebin](days/26-end-to-end-distributed-pastebin.md) | Lesson | Facing a full loop on the spine, leave able to assemble the distributed pastebin in one interview-shaped pass. |
+| 26 | [End-to-end distributed pastebin](days/26-end-to-end-distributed-pastebin.md) | Lesson | Facing a full interview on the spine, leave able to assemble the distributed pastebin in one interview-shaped pass. |
 | 27 | [Red-team before they do](days/27-red-team-before-they-do.md) | Lesson | Facing your own finished design, leave able to find the holes a staff interviewer would open and patch the reasoning. |
 | 28 | [Mock: image upload and thumbnails](days/28-mock-image-upload-and-thumbnails.md) | Mock | Facing an interview problem that is not the pastebin, leave able to design image upload and thumbnails from the product behavior, then log a self-score. |
 

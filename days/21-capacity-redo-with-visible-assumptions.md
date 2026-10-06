@@ -104,6 +104,26 @@ A fan-out of three on the cold GET is not three times the storage. It is three r
 
 Deletes at steady state match creates, about 116/s average. Each becomes one commit plus one queued detach. Do not add 116 to the primary **read** column. Do add them to commits if you are sizing WAL. Peak write commits stay in the few hundreds unless deletes burst; a scripted delete of a backlog is the sweeper, batched, which you already keep off the user path.
 
+### Cross-checks a staff answer runs before it trusts the table
+
+**One formula, every cell.** Primary peak reads = 17,400 × (1 − edge) × (1 − meta). Say it once and every row is a substitution. The primary's ceiling is 15,000, so it needs (1 − edge)(1 − meta) ≤ 15,000 / 17,400 ≈ 0.86: a **combined** hit rate of about 14%, the same number day 10 found before the edge existed. Everything above 14% is headroom, not survival. That reframes the whole table: 95% and 90% are the comfortable day; 14% is the line.
+
+| Edge | Meta | Primary peak reads | Against 15,000 |
+|---|---|---|---|
+| 95% | 90% | 87 | idle |
+| 80% | 90% | 348 | idle |
+| 0% | 90% | 1,740 | fine |
+| 0% | 57% | about 7,500 | half |
+| 0% | 0% | 17,400 | over, shed |
+
+**The RAM assumption, checked against the TTL.** An entry cannot live past its jittered TTL, so the cache can never hold more than reads arriving at it per second × the longest TTL. At the assumptions, 870 a second × 75 s ≈ 65,000 entries, about 26 MB at 400 bytes. With the edge cold, 17,400 × 75 ≈ 1.3 million entries, about 520 MB. The "1% of live rows, 2 GB" figure above is a ceiling the TTL never lets you reach. Keep it as a provisioning number; do not mistake it for the working set. Two independent estimates that disagree by 4× to 80× are exactly what you want to notice out loud: it tells the interviewer which number you would trust and why.
+
+**The bill moves with the edge, too.** Day 14 priced bucket GETs at around $6,000 a month with every read going to the bucket. At a 95% edge hit rate, bucket GETs fall to 870 a second at peak, about a twentieth, and the request bill falls with them. The edge's own bandwidth bill replaces part of it. The point for the room: the hit rate is a cost assumption as well as a load assumption, and the zero column is also the worst bill.
+
+**Which assumption to measure first, and how.** The edge hit rate, because it is wrong by 20× if bypassed. The CDN reports cache status on every response; sample it at peak, per hour, for a week, before quoting 95% to anyone who plans capacity. Then the metadata hit rate from the cache's own counters. Then mean body size from `size_bytes` on the rows you already have. Measure in the order of how badly each one moves the table.
+
+What staff sounds like here is collapsing the table to one formula and one line. "The primary needs a combined hit rate of 14%; at our assumptions it sees 87; with both cold it sees 17,400 and we shed" fits in fifteen seconds and survives every push, because each number is a substitution the interviewer can do with you.
+
 ### What you will not do with these numbers
 
 You will not go back and delete the CDN because the primary only sees 87 reads a second. The CDN is why. Removing it is the right-hand column.
@@ -128,6 +148,8 @@ flowchart LR
 
 Every percent on this picture is an assumption. The arrows are not measurements.
 
+Caption it: "Assumed: 95% edge, 90% metadata. Required: 14% combined." Write the required number beside the assumed ones. A drawing that only shows the happy rates invites the interviewer to ask the question you should have answered on the board.
+
 ### The column that has to work
 
 ```mermaid
@@ -138,6 +160,18 @@ flowchart TB
   zero --> shed[Shed and singleflight, not a new QPS]
 ```
 
+Caption: "The zero column is the design. The 95% column is a good day." If you only have time to draw one of the two diagrams, draw this one.
+
+## Failure the user sees, when an assumption breaks
+
+**The edge is bypassed.** A client appends a cache-buster, or a CDN region comes up empty. Origin reads go toward 17,400. With a warm metadata cache the primary sees about 1,740, fine. The bucket sees up to 17,400 GETs a second and 174 MB/s, and the GET bill climbs toward day 14's figure. Users see slower reads on the bypassed traffic, nothing worse. The page is on edge hit rate and origin egress, not on errors.
+
+**A global purge and a cache restart on the same afternoon.** Both hit rates go to zero together. The primary sees 17,400 against 15,000. Users see creates slow and cold reads shed with 503 until the caches refill, which for hot keys is seconds and for the rest is a TTL. This is the column you designed for; the user experience is degraded, not down.
+
+**The mean body is 20 KB, not 10 KB.** Every byte column doubles: bucket bandwidth, edge egress, storage, the bill. No QPS changes. Users see nothing. Finance does.
+
+**The read ratio drops to 1:1.** The edge hit rate collapses because pastes are rarely read twice. The CDN is back to being justified only by the hot cap. The primary still sees under 15,000 because total reads fell too. Say this to show the hit rate and the read ratio are coupled assumptions.
+
 ## Trade-offs
 
 **Choice.** Quote both columns. Size the CDN for the full 1.4 Gbit/s. Size the origin to **survive** the zero-hit column by shedding, not to **enjoy** it. Use 95% and 90% only to say what you expect on a normal day, and instrument both.
@@ -147,6 +181,8 @@ flowchart TB
 **What you give up.** Four extra minutes, and an interviewer who thinks you are not confident because you showed the ugly column. You can live with that. The ugly column is how you know day 19's caps are still required after a week of adding boxes.
 
 **What the single number gives up.** Checkability. If the edge is bypassed (a client that adds a cache-buster, a purge of the world, a new region of the CDN that is empty), your hundred QPS becomes 17,400 and you have no plan except surprise.
+
+**Name the refusal inside the alternative.** Against the single number: you refuse to quote a primary load that is only true while two caches are warm. Against sizing the origin for the zero column: you refuse to buy a primary for 17,400 reads that shedding and singleflight make survivable. Against dropping the CDN because 87 looks idle: you refuse to delete the reason it is idle. Each refusal names the column it would hide.
 
 **10× break.** User peak reads ~174,000. At the same hit rates, origin is ~8,700/s and the primary is ~870/s. Creates are ~3,500 commits/s. The read math still looks easy **at the same hit rates**. The write math does not, and it never had a hit rate to hide behind. That is the handoff to day 24: the first component that breaks at 10×, if these assumptions hold, is the primary's **commits**, not the CDN and not the cache. If the assumptions do not hold, the origin NIC is the break, same as day 3. You now have two different 10× stories, and you must say which assumption picks between them.
 
@@ -164,7 +200,15 @@ flowchart TB
 
 **If they challenge 95%.** Good. Drop it to 80% in your head: origin peak is 20% × 17,400 = 3,480, primary at 90% meta hit is 348. Still fine. At 0% you already have a column. The design does not flip between 80 and 95. It flips between "edge works" and "edge does not."
 
+**If they ask what hit rate you actually need.** "Combined, about 14%. That's 15,000 over 17,400. Everything above that is headroom. The 95 and 90 are what I expect, and I'd sample the CDN's cache status for a week before I let anyone plan on them."
+
+**If they ask whether 2 GB of cache is right.** "It's a ceiling. The TTL bounds entries to arrivals times the longest TTL: about 65,000 at the assumptions, about 1.3 million with the edge cold. Call it tens to hundreds of megabytes. I'd provision the 2 GB and expect to use a fraction."
+
 **If they ask what you page on.** CDN hit rate below the assumption by a wide margin at peak. Metadata hit rate the same. Primary read QPS, which should be near the low column and is an incident if it looks like the high column. Bucket GET bandwidth. These are the assumptions becoming false, which is the only page that matches this day.
+
+## Say this in the room
+
+Front door unchanged: 17,400 reads, 350 writes, 1.4 Gbit/s at peak. One formula: the primary sees 17,400 times the edge miss rate times the metadata miss rate. It needs a combined hit rate of about 14% to stay under 15,000; everything above that is headroom. I assume 95% at the edge and 90% on metadata: about 870 origin reads, 87 primary reads, 870 bucket GETs at peak. Edge cold: 1,740 at the primary, fine, and the bucket bill goes back up twentyfold. Both cold: 17,400, and I shed. Creates have no hit rate: 350 PUTs and 350 commits. A cold read is three calls inside the 300 ms budget; most traffic never reaches me. The cache's working set is bounded by the TTL, tens to hundreds of megabytes, so the 2 GB is a ceiling. I measure the edge hit rate first, because it's wrong by 20× if bypassed. At 10× the reads look easy at these rates; the commits don't, and they never had a hit rate to hide behind.
 
 ## Kit artifact
 

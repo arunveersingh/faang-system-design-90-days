@@ -88,6 +88,20 @@ Use the ring when membership changes without a ceremony: a cache node's replacem
 
 Modulo is the tool you use when N is fixed forever. N is not fixed forever. So you do not use modulo.
 
+### The fractions, derived, and what they cost the primary
+
+**Modulo, derived in one line.** A key stays put only if `h mod 4` equals `h mod 5`. Over any run of 20 consecutive hashes that happens for 4 of them. So 4 → 5 keeps 20% and moves **80%**. Going down, 4 → 3, it holds for 3 of every 12: **75%** move. In general, N to N+1 under modulo keeps only 1/(N+1). The more nodes you have, the worse a single change is. That is the sentence that ends the modulo discussion.
+
+**The miss storm, in this product's numbers.** Take the worst case you designed for: 17,400 reads a second reaching the cache tier, and the 57% hit rate day 10 said you wanted. The primary sees about 7,500. Lose one of four nodes on a ring: a quarter of the hits become misses, about 17,400 × 0.57 × 0.25 ≈ 2,500 extra a second. The primary goes to about 10,000, under 15,000, and decays back as the arc refills, hot keys in the first second, the tail within a TTL. Lose one under modulo: three quarters of the hits miss, about 7,400 extra, and the primary sits near 14,900 for the better part of a minute. One is a bump. The other is a page, at a moment you did nothing wrong except replace a box.
+
+**Virtual nodes, as a spread.** With one point per node, arc sizes are random and one of four nodes can easily own twice its share. With V points per node, the spread of shares shrinks roughly like 1/√V: at 100 virtual nodes, shares land within about ±10% of even. That is why "about 100" is the planning number. Ten leaves a node at plus or minus a third. A thousand buys almost nothing more and makes the member table bigger on every app.
+
+**A ring is not the only answer.** Rendezvous hashing scores every node for each key and picks the highest. It moves the same 1/N on a change, needs no virtual nodes, and at four to a few dozen nodes the per-lookup cost is nothing. If the interviewer prefers it, agree; the graded idea is "a change moves about 1/N, and only on a tier allowed to miss," not the shape of the circle.
+
+**Adding a node is a miss event too.** A new node joins empty and takes about 1/(N+1) of the keys, which all miss on their next read. Scaling the cache out during a primary incident adds misses at the worst moment. Add cache capacity when the primary has headroom, not as the first reaction to the primary being hot.
+
+What staff sounds like here is pricing the membership change on the primary, not on the cache. The cache is allowed to lose entries; the question is how many extra reads a lost node sends to the one store that cannot be scaled by adding a box. "A quarter of the hits, about 2,500 a second, decaying within a TTL" is the answer the interviewer can push on. "Consistent hashing minimizes movement" is a definition.
+
 ## Diagrams
 
 ### What moves
@@ -100,6 +114,8 @@ flowchart LR
   keys --> n3[Node C about 1/N]
   dead[Node B leaves] -.->|only B's arc misses| n3
 ```
+
+Caption it: "One node out of four leaves: a quarter of the hits miss once, about 2,500 a second extra at the primary." Write the number on the dotted arrow. The drawing exists to show the size of the cold arc, so put its size on it.
 
 ### What is not on the ring
 
@@ -114,6 +130,18 @@ flowchart TB
   ring --- bucket
 ```
 
+Caption: "Only the tier that is allowed to miss sits on the ring." Say the reason for each off-ring box out loud: apps are unpinned, the primary has one writer, the bucket is not yours to place.
+
+## Failure the user sees, when cache membership changes
+
+**A cache node dies.** Readers of ids on that arc get a slower read once, a primary round trip, then hits again. The primary takes about 2,500 extra reads a second at the worst-case load, decaying within a minute. Users notice nothing unless the primary was already near its ceiling. Limiter buckets on that arc reset, so a few IPs get a fresh burst.
+
+**Two apps disagree on membership for a few seconds.** A delete writes its tombstone to the new owner; an app still on the old list reads the old owner, which holds the live entry, and serves the deleted paste. Bounded by the time it takes the new version to reach every app, plus at worst the entry's TTL. Say it as the ring's version of the tombstone race: rare, short, bounded.
+
+**Autoscaling flaps.** Nodes join and leave every few minutes. Every change cold-starts an arc. The primary sees a sawtooth of extra misses all afternoon and nothing looks broken in any single graph. Users see intermittent slow reads. Page on member-list version changes per hour, not only on miss rate.
+
+**Someone deploys modulo by accident.** One node replacement turns into a three-quarter miss storm at the primary, near its ceiling for a minute. Reads slow everywhere, creates slow with them. The postmortem says "cache incident"; the cause was arithmetic.
+
 ## Trade-offs
 
 **Choice.** Consistent hashing with virtual nodes for the cache. Apps compute the owner from a versioned member list. No cache-to-cache replication. No modulo. Primary and app tier stay off the ring.
@@ -123,6 +151,8 @@ flowchart TB
 **What you give up.** A member list that can be briefly wrong, and a spread that is only as even as your virtual nodes. You give up the simplicity of one cache process. You take a cold arc of about 1/N on every loss, which the primary must absorb as misses. Singleflight still collapses a hot key; it does not collapse a random quarter of the keyspace. A random quarter is many distinct ids, so it is many primary reads. That is the cost you sized above.
 
 **When the fixed map wins.** The moment the data is the primary and a moved key has to land exactly once. Then you want slots, a visible move, and one writer per slot. The ring's "miss and refill" story is false there: a miss is not a refill, a miss is a lost row. Do not "consistent-hash the database" with the cache's failure semantics.
+
+**Name the refusal inside each alternative.** Against modulo: you refuse to turn every replacement into a 75 to 80% miss storm on a primary with no slack. Against one cache node: you refuse to make every restart a full cold start. Against the fixed slot map for the cache: you refuse a human ceremony for a tier that changes membership without one. Against cache replication: you refuse a second tombstone write to save a cold quarter that the primary can absorb. Each refusal names the miss fraction or the consistency problem it would cost.
 
 **10× break.** The hot set grows, and 1/N of a much larger origin QPS may exceed 15,000 misses when a node dies. Then you add nodes (smaller arcs) before you add replication, because replication of a cache brings the tombstone dual-write. If the member list itself flaps — autoscaling oscillating — you will cold-start arcs all afternoon. The fix is damping scale events, not a better hash. Flapping is an operations break that looks like a hashing break.
 
@@ -138,9 +168,19 @@ flowchart TB
 
 **Hand-waving.** "Virtual nodes solve hot keys." They balance **ids**, not **traffic**. One viral id is still one id, on one node, at 8,700 reads/s. The ring does not split a single key. Day 11's singleflight and day 15's CDN are what split that load. If you hash a suffix onto the hot key to spread it, you have salting, which is a later phase, and you have broken "the id is the cache key" unless every read knows the suffix scheme. Do not salt today.
 
+**If they ask how many keys modulo moves.** "A key stays only if the two remainders match. Four to five, that's 4 of every 20: 80% move. Four to three, 75%. On a ring, about a quarter for a loss and a fifth for a join."
+
+**If they ask what a dead cache node does to the primary.** "At the worst-case load and a 57% hit rate, about 2,500 extra reads a second, so roughly 7,500 becomes 10,000 against a 15,000 ceiling, decaying within a TTL. Under modulo it's about 7,400 extra, which puts the primary near the ceiling."
+
+**If they suggest rendezvous hashing instead.** "Fine with me. Same 1/N movement, no virtual nodes, trivial cost at this node count. What I'm defending is 'a change moves about 1/N on a tier allowed to miss,' not the circle."
+
 **If they ask where the member list lives.** A versioned config the apps refresh. Not a consensus protocol you build in the interview. Disagreement is a short double-place of a cache entry, bounded by TTL.
 
 **If they ask what you page on.** Miss rate jumping by about 1/N when no node was supposed to leave. Member-list version flapping. One cache node at a much higher CPU than the others, which means virtual nodes are too few or a single key is hot. The second case is not fixed by adding nodes.
+
+## Say this in the room
+
+Modulo four to five keeps a key only when the remainders match, 4 of every 20, so 80% move; four to three, 75%. A ring with about a hundred virtual nodes per box moves about one over N and keeps shares within roughly ten percent. I only need that for the cache, which is allowed to miss. Four nodes, one dies: a quarter of the hits miss once. At the worst case I designed for, that's about 2,500 extra reads a second, 7,500 to 10,000 on a 15,000 primary, decaying within a TTL. Modulo would put it near the ceiling. Apps compute the owner from a versioned member list; a few seconds of disagreement can serve a deleted paste, bounded by the TTL. No cache replication: the primary is the truth and a second copy doubles the tombstone write. Apps stay on least connections, the primary has one writer, and the bucket places its own bytes. Virtual nodes balance ids, not traffic; the viral id is still one key on one node.
 
 ## Kit artifact
 

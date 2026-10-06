@@ -81,7 +81,7 @@ Consumers will see a job twice. Both job types are safe twice:
 - Object delete of a missing key succeeds.
 - CDN purge of an already-purged URL succeeds.
 - Tombstone set twice is a tombstone.
-- Reap checks "no row and old enough" again before deleting, so a duplicated reap cannot remove an object that has since been... it cannot, ids are never reused. A duplicated reap of an id that later... ids are never reused, so a late reap cannot hit a new paste. **This is why never-reuse is a queue property, not only an id property.** If you recycled ids, a delayed reap would delete the next user's body. Say that.
+- Reap checks "no row and old enough" again before deleting. A duplicated or late reap cannot hit a new paste, because ids are never reused. **This is why never-reuse is a queue property, not only an id property.** If you recycled ids, a delayed reap would delete the next user's body. Say that.
 
 You do not need exactly-once. You need idempotent jobs and a key space that does not recycle.
 
@@ -104,7 +104,19 @@ There is no user-facing "your paste is processing" page. This product's async wo
 
 A queue of creates "to smooth the peak." Peak writes are ~350/s. Smoothing them behind a worker means the client waits on a worker anyway, or you ack early. Both are worse than a PUT at 3.5 MB/s.
 
-Kafka-shaped machinery, consumer groups as a tour, exactly-once transactions across the bucket and the database. One log or one managed queue with retries and a dead-letter after N tries is the whole design. Dead-letter is how a poison job (a purge that will never succeed because the id is malformed) does not block the 116/s behind it. Page on dead-letter depth. Do not page on queue depth until it implies purge lag you can no longer hide behind max-age... you can always hide behind max-age. Page on dead-letter and on outbox age, so a stuck worker is visible even when users are not.
+Kafka-shaped machinery, consumer groups as a tour, exactly-once transactions across the bucket and the database. One log or one managed queue with retries and a dead-letter after N tries is the whole design. Dead-letter is how a poison job (a purge that will never succeed because the id is malformed) does not block the 116/s behind it. Page on dead-letter depth. Do not page on queue depth for user-visible staleness: the edge cap already bounds that at 60 seconds whatever the depth. Page on dead-letter and on outbox age, so a stuck worker is visible even when users are not.
+
+### Details that decide whether the queue is boring
+
+**Expiry does not need a purge.** Day 15 set `s-maxage` to the minimum of 60 seconds and the time left on the paste. An expired paste has already aged out of every edge by the time the sweeper sees it. So `detach` from the sweeper is object delete only; `detach` from a user DELETE is object delete **and** purge. That cuts purge volume from about 116 a second to the user-delete rate, which is a small fraction of it. It matters because CDN purge APIs are rate-limited per account, and a design that purges every expiry is the one that discovers that limit in production.
+
+**Order inside a job does not matter.** The row is gone before the job exists. Purge first, then object: an edge miss reaches the origin, which 404s. Object first, then purge: same. The decision already happened in the commit; the job only removes copies. That is why the job can be retried in any order and split across workers without a lock.
+
+**The outbox costs the primary writes.** Every delete, user or sweeper, now inserts an outbox row in the same commit, and the drainer later deletes it. At average rates that is creates (116) plus row deletes (116) plus outbox inserts (116) plus outbox deletes (116): about 460 writes a second instead of about 230. At peak, roughly 1,400. Still fine for a group-committing primary, and still worth saying, because the queue's durability was paid for on the primary, which is the 10× worry already. Drain in batches: poll every second, take up to a few hundred rows, delete them in one statement.
+
+**Retries have a shape.** Exponential backoff with jitter, a visibility timeout longer than the slowest honest purge call, and about eight attempts spread over an hour before dead-letter. The hour is chosen on purpose: a CDN purge API outage of a few minutes heals without a human, and a malformed id reaches dead-letter before it has cost much.
+
+What staff sounds like here is shrinking the queue's job until it is boring. Expiry doesn't purge. Order doesn't matter. Jobs run twice safely. The outbox lives in the commit, and its cost is named on the primary. A senior answer adds a queue and describes its features. A staff answer explains why the queue has almost nothing to get wrong.
 
 ## Diagrams
 
@@ -127,6 +139,8 @@ sequenceDiagram
 
 The 204 is above the queue on purpose. If your 204 is the last arrow, the user is waiting on the worker.
 
+Caption it: "204 after the commit. Everything below the 204 is copies, not decisions." Label the commit arrow with all three things it carries, row delete, outbox job, tombstone, because "one commit" is the guarantee and three separate arrows would draw a dual write.
+
 ### Backlog versus correctness
 
 ```mermaid
@@ -136,6 +150,20 @@ flowchart LR
   stuck --> bill[Objects wait, readers do not see them]
   stuck --> live[Live GET and POST still run]
 ```
+
+Caption: "A stuck queue costs a minute of edge staleness and some bytes. It never costs a paste." If any arrow out of "Queue stuck" ends at a 201 or a GET of a live paste, the wrong work is on the queue.
+
+## Failure the user sees, with cleanup off the request
+
+**The queue service is down.** Creates, reads, and deletes all succeed; jobs pile up in the outbox table, where they are durable. Deleted pastes leave edges within 60 seconds anyway. Objects wait in the bucket. Users see nothing. The operator sees outbox age climbing. When the queue returns, the drainer catches up at whatever rate the workers allow.
+
+**The outbox drainer is stuck.** Same user picture, but now nothing is moving and the queue looks healthy and empty. This is the sneaky one: queue depth is zero and the work is not happening. Page on outbox age, the oldest unprocessed row, not on queue depth.
+
+**A poison job.** One malformed id fails every time. Without dead-letter, it is retried forever and, on a single partition, blocks everything behind it; purges stop landing and objects stop being deleted. With dead-letter after about eight tries, it is parked within the hour and the rest flows. Users see nothing either way, because the edge cap bounds staleness. Page on dead-letter depth above zero.
+
+**The CDN purge API rate-limits you.** Purges slow down, retries back off, the job takes longer. The edge cap still bounds what readers see. This is why expiries do not purge: the budget is spent only on user deletes.
+
+**A worker deletes an object for a live row.** The only way is a bug that skips the "row is gone" precondition. Readers of that paste see 500 with `body_missing`. That is why the worker checks the row before the object delete, every time, even though the row was gone when the job was written.
 
 ## Trade-offs
 
@@ -148,6 +176,8 @@ flowchart LR
 **Why not inline.** A slow CDN purge API on the delete path makes every delete as slow as the most unhappy edge, and a hung purge call ties up an app process. You have four processes and a 5 second drain budget. A stuck purge during deploys will burn that budget and start cutting unrelated requests.
 
 **Why not async create.** The product is the link. A link that 404s until a worker runs is a broken product, not a backlog. There is no user-visible "processing" state in the requirements, and you should not add one to justify the queue.
+
+**Name the refusal inside each alternative.** Against inline cleanup: you refuse to let the slowest CDN purge set the latency of every delete and burn the drain budget. Against async create: you refuse to hand out a link to bytes a worker might lose. Against a bare publish to the queue with no outbox: you refuse a dual write that drops jobs when a process dies between the commit and the publish. Against exactly-once machinery: you refuse to pay for a guarantee idempotent jobs already make unnecessary. Each refusal names the failure it would invite.
 
 **10× break.** ~1,160 cleanup jobs/s average, a few thousand at a peak. Still one queue. The break is a poison job or a worker that cannot call purge fast enough, so outbox age grows. Readers of deleted viral pastes see the max-age bound, not the full outbox age, **only** because you capped the edge. If you had cached for a year, 10× would make the queue the product's correctness. The cap is what keeps this box a cleanup tool at 10×. The primary's commit rate is still the tighter 10× worry, because every delete and every create commits there, queue or not.
 
@@ -163,7 +193,17 @@ flowchart LR
 
 **If they ask what the user sees if workers are an hour behind.** Live pastes: normal. A just-deleted paste: gone on the origin, maybe present at an edge for the first minute, then gone even without the worker, because max-age elapsed. The bucket is fatter by the hour's objects. You alarm on outbox age so "an hour" is not how you find out.
 
+**If they ask whether expiry purges the CDN.** "No. The edge max-age is never longer than the time left on the paste, so an expired paste has already aged out. Only user deletes purge. That keeps purge traffic well under the provider's rate limits."
+
+**If they ask what the outbox costs.** "An insert in the delete commit and a delete when it drains. That roughly doubles writes from about 230 to about 460 a second at average. The primary can take it, and it's the same primary I'm watching at 10×."
+
+**If they ask how you'd know the worker is stuck.** "Outbox age, oldest unprocessed row. Queue depth can be zero while nothing moves if the drainer is the thing that's stuck."
+
 **If they ask exactly-once.** "I don't have it and I don't need it. Idempotent deletes, ids never reused, a dead-letter for jobs that fail N times."
+
+## Say this in the room
+
+The user waits for the PUT and the row commit on create, and for the row delete plus tombstone on delete. Nothing else. Object delete, purge, and orphan reap are written to an outbox row in the same commit, then drained to a queue. Jobs are copies-removal, so order doesn't matter and running one twice is safe. Ids are never reused, so a late reap can't hit a new paste. Expiry doesn't purge, because the edge max-age never outlives the paste; only user deletes do, which keeps purge under the provider's limits. Retries back off over about an hour, then dead-letter. If the queue is down, creates and reads work, deleted pastes leave edges within 60 seconds, and objects wait. I page on outbox age and dead-letter depth, not queue depth. I'm not queuing the create: that's an early ack with extra machinery.
 
 ## Kit artifact
 

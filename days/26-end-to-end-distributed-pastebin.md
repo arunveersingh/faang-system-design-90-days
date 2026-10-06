@@ -21,7 +21,7 @@
 
 ## Intent
 
-Facing a full loop on the spine, leave able to assemble the distributed pastebin in one interview-shaped pass. This is the phase in one sitting. It is not a new feature, and it is not the day-28 product.
+Facing a full interview on the spine, leave able to assemble the distributed pastebin in one interview-shaped pass. This is the phase in one sitting. It is not a new feature, and it is not the day-28 product.
 
 ## Problem
 
@@ -95,6 +95,33 @@ Edge hit returns the body and you see nothing. Edge miss: metadata cache, and on
 
 Limit, then validate, then PUT, then insert, then 201. Delete commits the row and the outbox, writes the tombstone, returns 204. A worker deletes the object and purges. Until then an edge may still be inside max-age.
 
+### What to cut when you are behind
+
+A full pass in 35 minutes means you will be behind at some point. Decide now what goes, so you do not decide by panic.
+
+- **Minute 10, no numbers on the board yet.** Skip the derivations; state the products (116, 5,800, ×3, 4.5 TB, 1.4 Gbit/s) and say you can derive any of them on request. Numbers without arithmetic beat arithmetic without a design.
+- **Minute 20, no picture yet.** Draw the whiteboard in one go and attach each box's break in a word, not a paragraph. Skip the four-process division; say "four, so one down clears peak" and move on.
+- **Minute 28, no deep dive yet.** Offer exactly one, the 201 ordering with the orphan, and finish it. A finished deep dive beats three opened ones.
+- **Minute 32.** The close: one 10× component under a stated hit-rate assumption, one dependency down with the user's view. If you have only two minutes, do the failure; it is the signal people forget.
+
+Never cut: the 201 ordering, the zero-hit column, and "404 is gone on purpose, 503 is us." Those three are what separate a staff pass from a tour that happened to have good boxes.
+
+### Where the interviewer will interrupt, and the one-line answer
+
+| Interruption | What it tests | Answer with a number in it |
+|---|---|---|
+| "Why not object storage from day one?" | Whether boxes follow breaks | "Restore of 450 million files is about a day. That's the break; QPS never was." |
+| "What's your cache hit rate?" | Smuggled assumptions | "Required: about 14% combined to stay under 15,000. Assumed: 95 and 90. Zero column: shed." |
+| "The client never got the 201." | Idempotency honesty | "Retry is a second paste. The API said so. No dedupe log for anonymous clients." |
+| "Delete a viral paste." | Edge semantics | "Origin 404s now. Edges within 60 seconds plus purge. Browsers get a short max-age." |
+| "A cache node dies." | Membership math | "A quarter of hits miss once, about 2,500 extra reads a second at the worst case, decaying within a TTL." |
+| "Read from the replica to scale." | Stale-read discipline | "A lagging delete becomes a 200 for a whole TTL. The cache is the read scaler." |
+| "What breaks at 10×?" | Ordering under assumptions | "Commits: 3,500 against about 2,000, and 14,000 row changes behind them. Partition by id." |
+
+Each answer is a sentence and a number. If yours is a paragraph, the interviewer has to interrupt again to find the number.
+
+What staff sounds like on this day is economy. Every earlier day added depth; this one tests whether you can carry all of it at speaking speed and still leave time for the close. The staff move is to state each box with its break in one clause, defend with a number when interrupted, and protect the last five minutes for 10× and failure.
+
 ## Diagrams
 
 ### Whiteboard
@@ -117,6 +144,8 @@ flowchart LR
 
 Numbers in the corner: 350 writes/s peak, 17,400 reads/s peak, 1.4 Gbit/s at the edge, 4.5 TB in the bucket. If the corner is empty, the picture will not survive "does it fit?"
 
+Caption it: "Every box has its break in the table above. The replica arrow is dotted because no user waits on it." Label every arrow that carries a decision: "miss" on CDN to balancer, "not the GET" on primary to replica, "after commit" on app to outbox. Unlabeled arrows are where an interviewer asks "and what goes over that?"
+
 ### Ack versus lag
 
 ```mermaid
@@ -134,6 +163,23 @@ sequenceDiagram
 
 You should be able to redraw the read branches from day 23 without this page. If you cannot, that is the practice, not a new component.
 
+Caption: "One ack point for create. Delete acks before purge." That note across the bottom is the only async in the design, and it is on the delete, not the create.
+
+## Failure the user sees, one line per box
+
+| Box dies | The user sees |
+|---|---|
+| One app process | A blip; in-flight requests fail; a retried create may duplicate |
+| Balancer | Nothing reachable; nothing lost |
+| Metadata cache | Slower reads; primary takes the misses; shed past the fill cap |
+| Primary | About 30 s of failed creates and deletes; hot reads still served; then the unshipped tail 404s |
+| Replica | Nothing, until the primary also dies; page as a durability incident |
+| Bucket | Creates and cold reads 503; hot reads ramp down over a minute; deletes work |
+| CDN | Mean case falls back to origin and works; the hot cap does not fit; shed the one paste |
+| Queue | Nothing; edges heal on max-age; objects wait |
+
+You will be asked for one row. Know all eight so you can pick the one that shows the most.
+
 ### The four sentences that are the design
 
 If you remember nothing else on the board, these four:
@@ -148,6 +194,8 @@ An orphan is a PUT without a row. It is waste, reaped after an hour only if the 
 ## Trade-offs
 
 **Choice.** This set, and no more. The create is synchronous. The edge is allowed to be wrong for at most 60 seconds after delete. The replica lags and is not a read source. The cache misses are correct because they hit the primary.
+
+**Name the refusal inside each alternative you will be offered.** Against a queue on create: you refuse an early ack. Against replica reads: you refuse a delete that comes back for a TTL. Against a body cache in Redis: you refuse a second disk with no durability story. Against multi-region: you refuse a replication design with no requirement asking for it. Against Kafka: you refuse a firehose for 116 cleanup jobs a second. Each refusal is a sentence you already said on an earlier day; here you only need the clause.
 
 **What you are giving up, said as a list you can speak.** Instant global delete. Create idempotency. Survival of a bucket outage for cold reads. A second region. A primary that can take 10× commits.
 
@@ -167,7 +215,13 @@ That pair, 10× and one failure, is the close. Do not add a third unless they as
 
 **If they pull one deep dive, pick one and finish it.** The best three, still: the id width and never-reuse (including why a late reap is safe only then); the tombstone versus the TTL; the orphan and the one-hour floor. Doing all three is how you run out of clock. Offer one.
 
+**If they say "you're over time."** Go straight to the close: "Ten times: commits break first at 3,500 against about 2,000; partition by id. Bucket down: creates and cold reads 503, edge hits ramp down over a minute, deletes still work." Two sentences. Stop.
+
 **If they ask what you would not build.** Accounts, a public bucket, create-on-a-queue, reads from the replica, retries on timeouts, a body cache inside Redis, a classifier.
+
+## Say this in the room
+
+The 60-second version. Capability URL, no accounts, expiry checked on the read. 116 writes and 5,800 reads a second, three times that at peak, 4.5 TB, 1.4 Gbit/s. Twelve-character id, never reused. Four stateless apps so one down still clears 17,400. Postgres for the row because the sweeper is a range; an async replica so rows survive, never read for GETs. Cache-aside on metadata because the primary's ceiling is under the peak; it needs about 14% combined hit rate and I assume far more, with a zero column that sheds. Private bucket because 450 million files won't restore. CDN because a hot 1 MB paste doesn't fit one NIC; it can be wrong for 60 seconds after delete. Outbox and queue only for purge and object delete. 201 after PUT and commit, nothing earlier. At 10×, commits break first if the edge holds. Bucket down: creates and cold reads 503, deletes still work, never 404.
 
 ## Kit artifact
 

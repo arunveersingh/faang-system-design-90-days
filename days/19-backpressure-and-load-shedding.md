@@ -75,7 +75,26 @@ Fifty is a choice you can say. Four processes × 50 = 200 in flight, not 1,750. 
 
 When a process is at the cap, new creates get **503** and `Retry-After`. They do not get a ticket in an unbounded queue. They do not get a 201. They do not sit on a worker. The client is the place that waits, because only the client knows whether the paste is still worth sending.
 
-Global version of the same idea: day 17's global 350/s is admission by rate. Today's cap is admission by **concurrency against a slow dependency.** You want both. Rate limits do not save you when each of 10 allowed requests holds a slot for 30 seconds... actually the per-IP limit would. The global pile-up is many IPs, each under their own limit, which is exactly the honest peak plus a slow store. Per-IP limits are not backpressure. Do not confuse them in the room.
+Global version of the same idea: day 17's global 350/s is admission by rate. Today's cap is admission by **concurrency against a slow dependency.** You want both. A per-IP limit does stop one client from holding many slots. It does nothing about the real pile-up: many IPs, each under their own limit, which is exactly the honest peak plus a slow store. Per-IP limits are not backpressure. Do not confuse them in the room.
+
+### What the cap lets through, by Little's law
+
+Slots divided by latency is throughput. Four processes × 50 slots = 200.
+
+- **Healthy PUT, 50 ms:** 200 / 0.05 = 4,000 creates a second of capacity against a 350 peak. The cap is invisible.
+- **The cap starts to bite** when latency passes 200 / 350 ≈ **0.57 seconds**. That is the number to alert on: PUT p50 crossing half a second at peak means shedding is about to begin. It is a better page than "503s appeared," because it fires before users see them.
+- **Sick PUT, 5 s:** 200 / 5 = **40 creates a second** succeed. About 310 a second get 503. Roughly 89% of creators are shed for as long as the bucket stays at 5 seconds. Say that number. It is the honest size of the incident for creators.
+- **30 s PUT:** about 7 a second succeed. Effectively, creates are off.
+
+**Bytes bind first for big bodies.** 32 MB per process holds 3,200 mean-size bodies but only 32 at the 1 MB cap. Under a max-size attack, the byte cap, not the count cap, is what sheds. Total buffered across the tier stays at 128 MB whatever the mix, instead of the 1.8 GB from the unbounded case.
+
+**Shed before you read the body.** Check for a free slot when the headers arrive, as day 17 checks the limiter. A 503 after reading a 1 MB body has already spent the bandwidth and the memory you were protecting.
+
+**Jitter the Retry-After.** 310 rejected creators a second all told "retry in 5 seconds" come back together, in a wave, five seconds later. Return a random value in a band, say 5 to 15 seconds. That is the bridge to day 20.
+
+**The read pool does not make reads immune.** It protects reads from creates, not from the bucket. A cold origin read waits on the same slow GET. Give each process, say, 200 read slots: at 5 second GETs, each process completes about 40 cold reads a second. Cold readers are mostly shed too. The people who still see their paste are the ones on the edge. That is the reason the CDN was worth its delete-lag cost: it is the part of the read path that does not depend on the bucket's latency.
+
+What staff sounds like here is turning the cap into throughput and back. "Fifty per process" is a configuration. "Two hundred slots means 40 creates a second at 5 second PUTs, so about 89% of creators see 503, and it starts biting at about half a second" is a design. The interviewer can check every number, and every number tells an operator what to watch.
 
 ### Reads
 
@@ -120,6 +139,8 @@ flowchart TB
   reads --> cold[Cold origin reads 503 only if their slots fill]
 ```
 
+Caption it: "Creators shed first, by slots. Edge readers untouched. Cold readers shed only when their own slots fill." Write "40/s at 5 s" next to the create slots. The number tells the room how small the surviving create rate is.
+
 ### In flight, bounded
 
 ```mermaid
@@ -139,6 +160,20 @@ sequenceDiagram
 
 There is no queue arrow in this picture. If you need one, you are looking at day 16's cleanup jobs, which are not this request.
 
+Caption: "The decision is made before the body is read and before the PUT." Put the `alt` at the top of the sequence, ahead of any arrow to the bucket. If the 503 branch comes after a PUT arrow, the shed is happening too late to protect anything.
+
+## Failure the user sees, while the bucket is slow
+
+**Creators.** At 5 second PUTs, about 1 in 9 get a 201, slowly. The rest get 503 with a jittered `Retry-After` within milliseconds of sending headers. No hung spinner, no silent loss, no link that 404s later.
+
+**Readers on the edge.** Nothing. The CDN serves the body and never asks the origin. This is most readers of most popular pastes.
+
+**Readers of cold pastes.** Slow reads while read slots are free, then 503 once they fill. Never a 404: the paste exists, the store is slow.
+
+**Deleters.** Delete is a row commit plus a tombstone; the object removal is on the queue. Deletes keep working. The queue backs up with object deletes, which is waste, not a user problem.
+
+**Without the cap.** Memory climbs on all four processes together, because least connections spreads the pile-up evenly. They OOM within seconds of each other. Every reader on those processes gets a reset connection, the balancer sees four processes restarting, and the site is down for everyone, including edge-miss readers who never needed the bucket. That is the outage the cap exists to prevent.
+
 ## Trade-offs
 
 **Choice.** Per-process caps on in-flight creates (50 and 32 MB) and a separate cap on origin GETs. Over the cap, 503. CDN hits untouched. Health checks untouched. No queue of waiting creates.
@@ -148,6 +183,10 @@ There is no queue arrow in this picture. If you need one, you are looking at day
 **What you give up.** Some creators get 503 while the bucket is slow, including honest ones who happened to arrive then. You will be blamed for errors that are actually the dependency. Good. The error is visible. A memory pile-up is a crash that looks like the app is the bug. You also give up using the full process memory "efficiently." The cap is idle most days. That is what a bound looks like.
 
 **Why this order of shedding.** Existing readers are not what is making PUTs slow. Punishing them to keep accepting creates couples the healthy path to the sick one, which is the failure mode.
+
+**Name the refusal inside each alternative.** Against the in-memory pile-up: you refuse to let a slow store OOM the processes that serve reads. Against the durable create queue: you refuse a 202 contract and the early ack. Against shedding reads first: you refuse to punish the links already in the world for a dependency that only creates are waiting on. Against autoscaling into the incident: you refuse to add senders to a store that is already late. Each refusal names who would pay for the slow bucket instead of the creators.
+
+**An adaptive cap is the grown-up version.** A static 50 is right for one latency. A limiter that lowers the slot count when latency rises and raises it when latency falls, additive increase and multiplicative decrease, finds the cap on its own. Name it as what you would build at 10× or after the first incident, not as the first design. A static, visible number is easier to defend in the room and to read on a dashboard at 3 a.m.
 
 **10× break.** Peak creates ~3,500/s. Fifty slots times four processes is 200 in flight. A healthy fast PUT still turns over fast enough that you may be fine; do the arithmetic in the room with the PUT latency they give you. If healthy PUT is 50 ms, one slot does 20 creates/s, 200 slots do 4,000/s, which still clears the ~3,500 peak. If healthy PUT is 100 ms, one slot does 10/s, 200 slots do 2,000/s, under the 10× peak. The cap that was invisible at 1× becomes the write ceiling when latency slips, not because the fourth process removed the bound. You raise the cap when the dependency is healthy and the process has the RAM, or you add app processes. You do not remove the cap because 10× "needs throughput." The cap is what keeps 10× from being an OOM when latency slips.
 
@@ -163,7 +202,17 @@ There is no queue arrow in this picture. If you need one, you are looking at day
 
 **Hand-waving.** "We never drop." You drop, or the kernel drops. Pick the status code.
 
+**If they ask how many creates still succeed.** "Slots over latency. Two hundred slots at 5 seconds is 40 a second against 350 arriving, so roughly 89% of creators get 503 for as long as it lasts. The cap starts to bite around 0.57 seconds of PUT latency at peak, and that's what I'd alert on."
+
+**If they ask whether the read pool saves cold readers.** "It saves them from creates. It doesn't save them from the bucket; a 5 second GET is a 5 second GET. The readers who don't notice are the ones on the edge."
+
+**If they ask what Retry-After you send.** "A random value between about 5 and 15 seconds. A fixed value turns 300 shed creators a second into a synchronized wave."
+
 **If they ask what you page on.** Create 503s above a trickle. In-flight slots pinned at the cap. Read-pool exhaustion. Process memory, as a backstop, not as the primary signal. Not CDN hit rate, which should stay boring through this incident if you shed correctly.
+
+## Say this in the room
+
+If PUTs take 5 seconds and I accept 350 a second, I'm holding 1,750 bodies; at the 1 MB cap that's gigabytes, the processes OOM together, and reads die with them. So each app gets 50 create slots and 32 MB of buffered bodies, checked when the headers arrive, before I read the body. Two hundred slots at 5 seconds is 40 creates a second: about 89% of creators get 503 with a jittered Retry-After, and nobody gets a link that doesn't exist. The cap starts to bite around half a second of PUT latency at peak, which is what I alert on. Reads use a separate pool so creates can't starve them, but cold reads still wait on the slow bucket; the readers who see nothing are on the edge. Health checks stay local so shedding never drains the tier. No queue of creates, no autoscaling into a sick dependency. Existing links come first, because new writes aren't what the shared links are waiting on.
 
 ## Kit artifact
 

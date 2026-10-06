@@ -70,7 +70,7 @@ Why the origin is the app and not the bucket: the bucket does not know `expires_
 ### What is not cached
 
 - `POST`, `DELETE`, and the 201 body that contains the delete token.
-- `404`. Caching a 404 at the edge turns a create that is merely slow, or a paste that just crossed the expiry boundary the other way... creates are not visible before 201, so a cached 404 is less deadly than a cached 200. It still pins "missing" for a scanner's keys and can outlive a clock correction. Do not cache 404 at the edge. Same refusal as the metadata cache.
+- `404`. A cached 404 is less dangerous than a cached 200: creates are not visible before the 201, so there is no window in which a real paste is legitimately missing. It still pins "missing" for a scanner's keys and can outlive a clock correction. Do not cache 404 at the edge. Same refusal as the metadata cache.
 - `500`. An edge that caches `body_missing` will keep paging a dead paste as an outage after you repair the object. Never cache a 500.
 
 ### How long
@@ -99,6 +99,18 @@ Immutable bodies are why this works at all. You refused edits on day 2. If you h
 
 You do not get to claim a hit rate you have not labeled. For the hot paste that forced this box, the steady state after the first fill is **one origin read per edge per max-age**, not 2,000 reads/s. Say it that way. A cold start or a purge sends the herd once; singleflight on the app still applies. You will put a number on the average hit rate on day 21, in the open. Today the justification is the hot cap, which does not depend on a site-wide 95%.
 
+### Origin load, as arithmetic, and the honest limit
+
+**Per-PoP fills.** "One origin read per edge per max-age" needs a number of edges. Call it 100 points of presence. A hot paste read everywhere costs 100 fills per 60 seconds, under 2 a second, against 2,000 reads a second at the readers. Put a shield tier between the edges and the origin, one regional cache the edges ask first, and it becomes about one fill per 60 seconds. Most CDNs also collapse concurrent misses for the same URL at an edge, the same idea as singleflight. Say "shield plus collapsing" in one sentence; that is how 16 Gbit/s becomes a trickle at the origin.
+
+**Cold pastes do not get this.** A paste is read about 50 times over its life on average. If those reads are spread across 100 edges and many days, most of them miss at their edge, because nobody else there asked in the last 60 seconds. The CDN absorbs hot pastes almost completely and cold pastes hardly at all. What that means for **bytes** depends on how concentrated reads are: if most reads land on a few popular pastes, or in the first minutes after a link is shared, the edge takes most of the 1.4 Gbit/s; if reads are spread evenly over weeks, it takes little. You do not know which yet. That is why you justified the edge with the hot cap and not with a site-wide hit rate, and why day 21 writes that rate down as an assumption with a zero column beside it.
+
+**Browsers are caches too, and purge cannot reach them.** `max-age` applies to every cache, including the reader's browser. A purge clears the edges, never a laptop. So split the header: `s-maxage` for shared caches, set to `min(60, seconds until expires_at)`, and a short or zero `max-age` for browsers, so a deleted paste lingers only where you can purge it. One header line, and the delete bound becomes something you control.
+
+**Purge is fast and not guaranteed.** Purges typically land across a CDN in seconds. Treat that as typical, not as a contract: the call can fail, time out, or lag on one region. The 60 second cap is what makes a failed purge a minute of lie instead of a forever.
+
+What staff sounds like here is being exact about what the edge buys. It buys the hot cap, completely. It buys little for the long tail. It buys a delete bound only if the header separates edge from browser. A senior answer says "CDN, 95% hit rate, done." A staff answer says which bytes the CDN takes, which it does not, and how long it can be wrong.
+
 ## Diagrams
 
 ### What the edge may answer
@@ -115,6 +127,8 @@ flowchart LR
 
 The writer does not go through the cacheable path. If your arrow from POST ends at the CDN as a stored response, erase it.
 
+Caption it: "Edge answers GET hits only. Every decision is behind the app." Label the miss arrow with `s-maxage ≤ 60`. A reader of the drawing should be able to see, without your voice, that the edge cannot outlive the origin by more than a minute.
+
 ### Authority
 
 ```mermaid
@@ -127,6 +141,20 @@ flowchart TB
 
 The lie is a trade you are making for 16 Gbit/s you cannot push from one NIC. Name it.
 
+Caption: "Origin decides now. Edge can be wrong for at most 60 seconds plus purge." That is the sentence a product owner signs. If they will not sign it, there is no edge.
+
+## Failure the user sees, with an edge in front
+
+**The CDN has an outage and traffic falls back to the origin.** For the mean case, you are back on day 14: 17,400 reads a second through four apps and the bucket, which worked. The hot cap does not: 16 Gbit/s for one paste on one origin NIC. Readers of the viral paste see failures and slow responses; most other pastes are fine if the hot one is shed. Say which traffic you would drop first. It is the one paste, not the site.
+
+**A deleted paste is still served.** A reader on a warm edge sees it for up to the remaining `s-maxage`, at most 60 seconds, or until purge lands. A reader whose browser cached it sees it only if you let browsers cache. The author thinks it is gone. Bounded and said in advance.
+
+**The purge call fails.** Same as above, for the full 60 seconds. Retry the purge from the queue on day 16; page on purge failure rate, because it is the only signal that the bound you promised is the bound you are getting.
+
+**Someone adds a header that varies the cache key.** A cookie or a tracking query parameter leaks into the key. Hit rate drops to near zero, origin egress jumps back to the full hot-key rate, and nothing is wrong functionally. Users see nothing until the origin saturates. Page on origin egress, not on the CDN's dashboard.
+
+**The edge caches a 500 because someone removed the no-cache rule.** A repaired paste stays broken at the edge for the max-age. Readers see an error for a paste that works. That is why "never cache a 500" is a rule on the page, not a default you trust.
+
 ## Trade-offs
 
 **Choice.** CDN on GET only, origin is the app, max-age capped at 60 seconds and at the remaining TTL, no cached 404 or 500, bucket private, purge on delete.
@@ -138,6 +166,8 @@ The lie is a trade you are making for 16 Gbit/s you cannot push from one NIC. Na
 **Why not only a bigger origin.** 16 Gbit/s for one paste is a real number, and 10× of the mean case is another. You can buy NICs and still be the wrong place to fan bytes out to readers who are not in your region. You are one region by requirement. The edge is how readers far away do not all pull from that region. Even inside the region, the hot key's bytes are not the app tier's job.
 
 **Why not a public bucket.** You lose the 404 rule, the delete, the expiry check, and `nosniff` as something you control. The object store's own cache is not a substitute for that decision.
+
+**Name the refusal inside each alternative.** Against the bigger origin: you refuse to fan the hot cap out of one region's NICs when the problem is distance and fan-out, not raw capacity. Against the public bucket: you refuse to give up the 404 rule, delete, expiry, and `nosniff`. Against "cache forever, it's immutable": you refuse to let a takedown become permanent off-site. Against caching 404s at the edge: you refuse to pin a scanner's guesses in a hundred places. Each refusal names the contract line the edge would otherwise decide.
 
 **10× break.** Mean-case peak egress ~14 Gbit/s, and the hot cap scales too if the audience does. The CDN is the component you are now trusting to absorb that. The break moves to **purge lag and max-age on a viral delete**: 60 seconds of a paste the world is reading is a lot of copies. You do not fix that by setting max-age to zero; that deletes the CDN. You fix a truly must-vanish paste by purging and by having refused to cache for longer than 60 seconds. If the product cannot tolerate that minute, this pastebin cannot use a CDN, and you are back to buying origin bandwidth. Say the condition. Do not pretend the edge is free of product meaning.
 
@@ -155,7 +185,17 @@ The lie is a trade you are making for 16 Gbit/s you cannot push from one NIC. Na
 
 **If they ask about the first reader after publish.** They miss, hit the app, fill the edge. The creator does not go through the CDN for the 201. A friend who clicks immediately may still miss. That is fine. You do not pre-warm hundreds of edges on create.
 
+**If they ask what hit rate the CDN gets.** "On the hot paste, nearly all of it: with a shield, one origin fill a minute against 2,000 reads a second. On a cold paste, not much, because a paste read 50 times over its life rarely gets two reads at one edge inside a minute. Site-wide, it depends on how concentrated reads are, so I write that rate down as an assumption. I justified the edge with the hot cap."
+
+**If they ask about the browser cache.** "Purge can't reach a laptop. `s-maxage` up to 60 for the edge, short or zero `max-age` for browsers, so the only copies that can outlive a delete are ones I can purge."
+
+**If they ask what happens when the CDN goes down.** "The mean case falls back to the origin and works; that's day 14's design. The hot cap doesn't fit one NIC, so I shed that one paste before the site."
+
 **If they ask what you page on.** Origin egress back at the full hot-key rate, which means the edge is not hitting. Purge failures. A rise in 200s from the edge for ids the origin 404s, sampled, not imagined. Not the CDN's internal map.
+
+## Say this in the room
+
+Average egress, 1.4 Gbit/s, doesn't need an edge. Two thousand reads a second of a 1 MB paste is about 16 Gbit/s, and that does, before any 10× column. The CDN caches GET 200s only, keyed by the URL, no cookies. The origin is the app, not the bucket, so expiry, delete, and the missing-object 500 stay decided in one place. `s-maxage` is the minimum of 60 seconds and the time left on the paste; browsers get a short `max-age` because purge can't reach them. With a shield, the hot paste costs about one origin fill a minute. Cold pastes mostly miss at the edge, and the site-wide hit rate depends on how concentrated reads are, so I state it as an assumption, not a fact. A delete is immediate at the origin and late at the edge by at most 60 seconds plus purge; I'm saying that before you ask. No cached 404 or 500, nothing durable at the edge. If the CDN dies, the mean case falls back and works, and I shed the one hot paste.
 
 ## Kit artifact
 

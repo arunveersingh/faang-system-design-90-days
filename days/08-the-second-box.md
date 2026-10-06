@@ -106,6 +106,20 @@ Peak reads 17,400. Ceiling 8,000 per process. Minimum at peak is 4 processes so 
 
 Peak writes, 350/s, are not why you have four processes. Group commit on the data host still absorbs them. The app tier spends almost nothing on a write compared with streaming a read. Do not size the tier from the write number.
 
+### What the hop costs, in numbers you can say
+
+The split turned two in-process calls into two network calls per read: a point lookup on Postgres and a file read on the data host. Say what that does to the things you can now run out of.
+
+**Connections.** Little's law on the row lookup: at peak with one process down, each survivor takes about 5,800 reads a second (17,400 / 3). If a point lookup holds a connection for about 2 ms, that is about 12 queries in flight per process. A pool of 20 per process is comfortable. Four pools of 20 are 80 connections. Postgres ships with a default `max_connections` of 100, and you want a few left for the sweeper, migrations, and the human who logs in during an incident. So the pool size is a number you set on purpose, from the arrival rate and the hold time, not a library default of 50 per process that quietly asks for 200. That is the first thing the second box can break that the first box could not.
+
+**Bytes and latency.** The data host NIC still carries about 1.4 Gbit/s at peak, day 5's number, now pointed at four app hosts instead of the internet; each app host carries a third of it with one down. Nowhere near 10 Gbit/s. The hop costs two same-zone round trips per read, a fraction of a millisecond each. It is a latency cost, not a bandwidth break, at 1×. Say it so the interviewer hears you priced it.
+
+**Headroom, per process.** Four up: about 4,350 reads a second each, a bit over half the 8,000 ceiling. One down: 5,800 each, about 72%. That is the number to watch on a dashboard. A process that sits above 80% of its planning ceiling at the daily peak is the signal that the 8,000 was optimistic, before a deploy turns it into an outage.
+
+**Deploys, said as arithmetic.** Rolling one process at a time leaves three, 24,000 of ceiling against 17,400. Rolling two at once at peak leaves 16,000. So the deploy rule falls out of the same number that sized the tier: one at a time during the busy hours, and the rollout halts on the first process that fails to come back. A bad build that keeps rolling takes you to two, and a deploy alone melts the tier. The deploy rule and the sizing rule are the same sentence.
+
+What staff sounds like here is narrowing, not adding. Split exactly the thing that broke, the process, then say unprompted what the split moved: a connection budget, a network hop, and a data host that now has four clients instead of one. The interviewer is listening for whether you can tell a box that removed a limit from a box that relocated it.
+
 ## Diagrams
 
 ![Whiteboard: four app processes in front of one data host that still holds the rows and the bytes](assets/day-08-second-box.svg)
@@ -128,6 +142,8 @@ flowchart LR
 
 Say while drawing: "Three numbers in the corner. Peak 17,400 reads. Planning ceiling 8,000 per process. Four processes, so one down still clears peak. Bytes and rows stay on one data host."
 
+Caption it, under the drawing: "Four identical apps, one data host. Any app takes any request. The fan-in arrow is the failure domain." The arrows from the apps converge on one box on purpose. If you draw the data host as a cylinder off to the side, it reads like a utility. Draw it as the thing every arrow lands on, because that is what it is now.
+
 ### Where state sits
 
 ```mermaid
@@ -145,6 +161,18 @@ flowchart TB
 
 The picture is the lesson. If session or file state appears inside the app box, the tier is not stateless and a deploy will either drop creates or serve disagreement.
 
+Caption: "Nothing in the app box survives a restart, and nothing needs to." The client-side secret is drawn outside both boxes on purpose. It is the only state that is not on the data host, and it is on the creator's device, not yours.
+
+## Failure the user sees, after the split
+
+The second box changed which failures are small. Say each one as a user sentence, then as a page.
+
+**One app process dies.** In-flight reads and creates on that process fail, about a quarter of everything in flight at that moment. Reads retry cleanly. A create the client retries after a lost response may become a second paste, which the API already said. The other three carry 5,800 reads a second each, under the 8,000 ceiling. Users mostly see a blip, if the thing in front of the apps stops sending to the dead one. That last clause is day 9. Today, say that a dead process still being sent traffic is the user-visible failure, not the death itself.
+
+**The data host dies.** Everything fails: four healthy app processes return 5xx, quickly if they have timeouts, slowly if not. RPO and RTO are exactly day 5's: sole copy, and about a day to restore 450 million small files. Say this one first when asked "what's still single."
+
+**The data host is slow, not dead.** The interesting one. Fsync latency climbs, or a long query holds locks. Every app process now holds its in-flight requests longer. By Little's law, 5,800 reads a second at 50 ms instead of 2 ms is about 290 in flight per process instead of 12, and the 20-connection pool is exhausted. Users see creates time out and reads slow across all four apps at once. A fifth app process makes it worse: more callers on the same slow host. Page on data host latency and pool wait time, not app CPU, which will look idle.
+
 ## Trade-offs
 
 **Choice.** Four stateless app processes in front of one data host. No sticky sessions. Bodies stay on the one NVMe.
@@ -154,6 +182,8 @@ The picture is the lesson. If session or file state appears inside the app box, 
 **What you give up.** A network hop to Postgres and to the bytes, on every create and every read. In-process calls became remote calls. A slow data host now stalls four app processes instead of one. You also give up the ability to reboot "the server" as one thing; you have a role split to operate.
 
 **Why you still do it.** 17,400 does not fit an 8,000 ceiling, and a deploy of the only process is a total outage that the NIC math never mentioned. The hop is the cost of being able to restart an app without restarting the disk.
+
+**Name the refusal inside each alternative.** Against the bigger single process: you refuse it because a bigger process is still the only thing you can restart, and every deploy is still an outage; the ceiling moved, the restart did not. Against sticky sessions: you refuse them because there is no session to stick, and stickiness converts a dead process into a group of clients who cannot move. Against a second data host with its own NVMe: you refuse it because two disks with two copies you do not reconcile serve disagreement, and the fix for that is replication, which is a different day with a different break. Against a cache: you refuse it because the primary was not shown to be the break. Each refusal names the break it would actually fix, which is why it is not on this page.
 
 **10× break.** Peak reads go to about 174,000. At 8,000 per process, 22 meet the peak and 23 keep one down (22×8,000 clears 174,000). You can still call that an app tier. The data host does not come along for free: one NIC at ~14 Gbit/s still dies, and one Postgres still sees every metadata read. The second box fixed the event loop. It did not fix egress or the primary. Do not "add more app servers" as the answer to a full disk.
 
@@ -171,7 +201,15 @@ The picture is the lesson. If session or file state appears inside the app box, 
 
 **If they ask what the user sees when one app dies.** In-flight requests on that process fail. The other three keep serving. Clients retry. A retry of a create that might have committed is a second paste. You already sold that in the API. Reads retry cleanly.
 
+**If they ask how many connections Postgres sees.** "Four pools. I size each from arrival rate times hold time: about 5,800 a second at peak with one down, about 2 ms per lookup, so about 12 in flight. Twenty per process, 80 total, under the default 100 with room for the sweeper and an operator. A library default of 50 per process would ask for 200 and fail the day someone scales to four."
+
+**Hand-waving.** "Just autoscale the app tier." On what signal? CPU on the apps goes down when the data host is slow, because they are waiting. An autoscaler watching app CPU scales in during the incident. Scale on request rate against the per-process ceiling, and never as the answer to a slow dependency.
+
 **If they ask whether the data host should keep running an app process too.** It can, and then it is a special replica with a local disk the others do not have. You refuse the special case. Apps are identical. The data host serves Postgres and the files. One role each.
+
+## Say this in the room
+
+One process, I'm calling the ceiling 8,000 streaming reads a second, a planning number I'd load-test. Peak is 17,400, so four identical app processes: one down leaves 24,000, which clears peak; two don't meet it and three fall through on a drain. Any process takes any request because there is no session. The URL is the capability, the delete token is on the client, its hash is in the row. Bodies and rows stay on one data host, so the hop is new: I size each connection pool from arrival rate and hold time, twenty per process, eighty total, under Postgres's hundred. Deploys go one process at a time at peak, same arithmetic. One app dies: a blip and maybe a duplicate create on retry. Data host dies: everything is down and day 5's restore problem is untouched. Data host slow: all four apps stall together and more apps make it worse. Four app boxes do not make that disk durable. That is the next split, and it is not a cache.
 
 ## Kit artifact
 

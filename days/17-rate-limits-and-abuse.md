@@ -80,7 +80,23 @@ These are assumptions, as visible as the 3× peak. They are not measurements of 
 
 429 is not 404 and not 500. The client can retry later. The body tells them it was a limit, not a missing paste. Do not reuse `not_found`.
 
-Shared state for the buckets lives in the **cache tier you already have**, not in the memory of one app process. Four processes with four private counters allow four times the limit, and a round-robin (you are on least connections, which is worse) lets a client hunt for the empty bucket. One key `rl:{ip}` with an atomic increment and an expiry. If the cache is down, pick a policy and say it: **fail open on the per-IP buckets, fail closed on nothing you cannot compute, and keep the global cap conservative.** A dead cache that rejects every create is an outage the limiter invented. A dead cache that allows the per-IP burst until the global 350/s cap still bounds the cluster. Fail open per IP, enforce a coarse global counter in the primary only if you must... actually a global counter in the primary on every create is a write you do not want. Coarse approach: each app allows a local share of the global cap (350/4, with slack) when the cache is down, and pages. Good enough. Do not stop the product because the limiter's store blinked.
+Shared state for the buckets lives in the **cache tier you already have**, not in the memory of one app process. Four processes with four private counters allow four times the limit, and a round-robin (you are on least connections, which is worse) lets a client hunt for the empty bucket. One key `rl:{ip}` with an atomic increment and an expiry. If the cache is down, pick a policy and say it: **fail open on the per-IP buckets, fail closed on nothing you cannot compute, and keep the global cap conservative.** A dead cache that rejects every create is an outage the limiter invented. A dead cache that allows the per-IP burst until the global 350/s cap still bounds the cluster. Do not move the global counter into the primary when the cache dies; a counter row updated on every create is a hot write you do not want. Instead each app enforces a local share of the global cap (350/4, with slack) while the cache is down, and pages. Good enough. Do not stop the product because the limiter's store blinked.
+
+### The budget the table above forgot
+
+Multiply the global count cap by the body cap: 350 creates a second × 1 MB is **350 MB/s**, about 30 TB a day. The honest plan is 100 GB a day, about 1.2 MB/s on average and about 3.5 MB/s at peak. So the global count cap bounds rows and does almost nothing for bytes. A botnet that stays under every per-IP limit and posts only max-size bodies can fill the 4.5 TB resident plan in a few hours without ever tripping the 350.
+
+Add one row: **global create bytes, about 10 MB/s sustained**, roughly 3× the peak ingest you sized. Worst case under attack is then about 860 GB a day, bad but bounded and visible on a dashboard before lunch. Same home as the other buckets, same local-share fallback when the cache is down. This is the row a staff interviewer is waiting for, because the question was "a terabyte before lunch" and only a byte budget answers it.
+
+### Details that make a per-IP key honest
+
+**Which IP.** The app sees the balancer's address. The client address comes from a header the balancer sets. Trust only the value your balancer appended, never the leftmost entry a client can write. A limiter keyed on a spoofable header is a limiter the abuser configures.
+
+**IPv6.** One subscriber usually gets a whole /64. Keyed on the full address, one host has 2^64 identities and walks around the bucket by changing its low bits. Key IPv6 on the /64 prefix. One sentence, and it closes the cheapest bypass.
+
+**Token bucket, not a fixed window.** A counter that resets each second allows twice the limit across a window boundary. A token bucket refills continuously and the burst is exactly the number you wrote. The cost is one atomic call to the cache per create: 350 a second at peak, trivial. Give that call a budget of a few milliseconds; on timeout, treat it like the cache being down: fail open per IP, local share of the global caps.
+
+What staff sounds like here is multiplying the limits together before the interviewer does. Count times size is bytes. Per-IP times address space is the bypass. Global count without global bytes is a disk you have not protected. Each limit is a number with a unit, and the answer says which attack each one does not stop.
 
 ### Reads
 
@@ -110,10 +126,11 @@ sequenceDiagram
   participant L as Limiter in cache
   participant O as Bucket
   C->>A: POST Content-Length
-  alt over cap or over budget
-    A-->>C: 413 or 429
+  Note over A: over 1 MB is 413 before any call
+  A->>L: take count and byte tokens
+  alt over budget
+    A-->>C: 429 Retry-After
   else allowed
-    A->>L: take token
     A->>O: PUT
     Note over O: only now
   end
@@ -132,9 +149,23 @@ flowchart TB
 
 The bottom box is part of the answer. A limiter you describe as complete, while keyed only on IP, is hand-waving.
 
+Caption it: "Per-IP stops one host. Global bytes stop the disk. Nothing here stops a botnet from taking the honest peak." Draw the global bytes cap as a box between "Many addresses" and the bucket, so the gap is visibly bounded rather than visibly open.
+
+Caption for the sequence: "The limiter call decides the branch; the PUT exists only in the allowed branch." If a PUT arrow appears anywhere outside that branch, the limit is after the write.
+
+## Failure the user sees, with admission control
+
+**A user behind a carrier NAT.** Shares a budget with thousands of strangers and gets 429 with `Retry-After` on their first paste of the day. The body says it was a limit. This is the cost you accepted for having no accounts; page on 429 rate by prefix, so a whole carrier being blocked is visible.
+
+**A distributed flood under every per-IP limit.** The global count cap saturates at 350 a second, and honest creators share it with the attacker. Users see 429s on create while reads are untouched. The byte cap keeps storage growth to about 860 GB a day instead of 30 TB. This is the failure you cannot fix without a tenant, so you say what it costs: honest creates degrade, nothing durable is lost, and reads are fine.
+
+**The limiter's cache is down or slow.** Per-IP fails open. Global caps fall back to local shares per app. A single host can burst past its per-IP budget until the cache returns; the cluster is still bounded. Creators see nothing; the operator gets a page.
+
+**Someone sets the global cap and forgets it.** Honest traffic grows past 350 a second and real users get 429s that look like an attack. Page on global cap saturation with the per-IP distribution beside it: many IPs each under budget means growth, a few IPs at budget means abuse.
+
 ## Trade-offs
 
-**Choice.** Per-IP token buckets for create count and create bytes, enforced before PUT, state in the shared cache, global ceiling at the 350/s peak you already planned, loose origin-GET ceiling, no limit on CDN hits of a hot id.
+**Choice.** Per-IP token buckets for create count and create bytes, enforced before PUT, state in the shared cache, global ceiling at the 350/s peak you already planned plus a global byte ceiling around 10 MB/s, loose origin-GET ceiling, no limit on CDN hits of a hot id.
 
 **Alternative.** One global limit only, or a limit after the object is stored ("delete it if they were bad"), or accounts so the tenant is a user.
 
@@ -143,6 +174,8 @@ The bottom box is part of the answer. A limiter you describe as complete, while 
 **Why not accounts.** Day 2 refused them. They would make the key better and the product a user system. You may say "the limit key becomes the account id if we ever have one." You do not build login today to make the bucket fairer.
 
 **Why not limit-after-write.** You already paid for the PUT and the row, and the reaper is not an abuse system. Cleanup is not admission control.
+
+**Name the refusal inside each alternative.** Against a single global limit: you refuse to let one script consume the whole honest peak. Against limit-after-write: you refuse to pay for a PUT and a row to discover the request was abuse. Against accounts: you refuse to turn a pastebin into a user system to get a better key. Against fail-closed on cache loss: you refuse to let the limiter's store become a create dependency. Each refusal names who pays: honest users, the bucket, the product, or availability.
 
 **10× break.** The global ceiling becomes ~3,500/s if honest traffic grew, and you must move the number with the plan, not leave 350 in the config and 429 the real users. The per-IP numbers do not automatically 10×. A single abusive IP at 10× the site is still one IP; you do not give them 10× the budget because the site grew. The break is the **distributed** abuser, who at 10× of attack also looks like 10× of product. You cannot tell those apart without a tenant. Say that. The next control is a higher layer (account, payment, or a challenge), not a more precise token bucket.
 
@@ -160,7 +193,15 @@ The bottom box is part of the answer. A limiter you describe as complete, while 
 
 **If they ask about the delete token endpoint.** Delete is limited loosely per IP so nobody uses it to grind the primary. It is not the expensive path. Do not spend the design there. A wrong token is a 404, same as before, so the limit is about rate, not about leaking existence.
 
+**If they ask: "So what does stop a terabyte before lunch?"** "Per IP, the byte bucket: 100 KB a second is under 9 GB a day from one address. Across addresses, a global byte cap around 10 MB a second, three times the peak ingest I planned. The 350 count cap alone allows 350 MB a second at the 1 MB cap, so it doesn't answer your question."
+
+**If they ask how you get the client's IP.** "From the header my balancer appends, never the part a client can write. And on IPv6, I key the /64, or one host has more addresses than I have tokens."
+
 **If they ask what you page on.** 429 rate as a fraction of creates, sudden changes, not the existence of some 429s. Global cap saturated for more than a blip, which is either attack or under-sizing. PUT bytes per day versus the 100 GB assumption. Not "any abuse."
+
+## Say this in the room
+
+Size check first: over 1 MB is a 413 before anything else runs. Then the limiter, before the PUT and before the insert, so a rejected create costs nothing durable: no id, no object, no row. Per IP, about one create a second with a burst of ten and a byte bucket of 100 KB a second, so the 1 MB cap can't be used as a disk filler. Globally, 350 creates a second, the peak I sized, and a byte cap around 10 MB a second, because count times body cap is 350 MB a second and that's the terabyte you asked about. Token buckets in the shared cache, keyed on the address my balancer appends, /64 for IPv6. Cache down: fail open per IP, local shares of the global caps, page. I don't limit viral reads at the CDN; origin GETs get a loose 50 a second per IP against cache-busting. Per-IP punishes a NAT and misses a botnet; the global caps bound the damage to honest creates degrading, never to the disk filling.
 
 ## Kit artifact
 
