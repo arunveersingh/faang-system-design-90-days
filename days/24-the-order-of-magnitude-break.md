@@ -96,6 +96,30 @@ Do not reach for:
 - More app processes. They are not the ceiling under this bet.
 - Consistent hashing of the primary with cache semantics. A missed partition is a lost row.
 
+### Commits versus row writes, at 10×
+
+"Several thousand commits" hides two different numbers, and a staff answer separates them.
+
+**Commits.** Every create is its own transaction: about 3,500 a second at peak. User deletes are their own transactions too, but they are a small slice. Expiry deletes come from the sweeper in batches of a thousand, so 3,500 expiries a second are only a handful of commits. Group commit helps here: many inserts share one WAL flush. The commit **count** is about 3,500 a second, already over the 2,000 ceiling by 1.75×.
+
+**Row writes.** Every create inserts a row and an index entry. Every expiry deletes a row and, from day 16, inserts an outbox row in the same transaction, which the drainer later deletes. At peak that is about 3,500 inserts, 3,500 deletes, 3,500 outbox inserts, and 3,500 outbox deletes: roughly **14,000 row changes a second**. Batching made the commits cheap; it did nothing for the row work. That work is WAL bytes, index maintenance, and dead tuples.
+
+**What the row work does to the replica.** At something like 1 KB of WAL per row change, 14,000 a second is about 14 MB/s, over a terabyte of WAL a day. Day 13 said the replica's apply, essentially one process, is what lags first at 10×. This is the number behind that sentence. As lag grows, the async RPO from day 13 grows with it: thousands of links a second of lag instead of hundreds.
+
+**What it does to vacuum.** About 7,000 dead tuples a second from real deletes and outbox deletes, around 600 million a day. Autovacuum on one table at that rate is a job someone tunes, not a default.
+
+So the break is not only "too many commits." It is too many row changes on one writer, with one replica replaying them. Partitioning fixes all three together, which is why it is the fix and a bigger primary is a stopgap.
+
+### Sizing the partitions
+
+The arithmetic says two partitions clear 3,500 commits at 2,000 each. Do not stop at two. Run each partition at no more than about half its ceiling, so a burst or a slow disk does not put it over: 3,500 / 1,000 = **4 partitions**. Use a power of two so a later split halves a slot range instead of reshuffling. Each partition needs its own replica, so the fleet is **eight Postgres instances**, four failovers to rehearse, four sweepers. That operational cost is the real reason you did not partition at 350 a second, and you should say it as a cost, not a footnote.
+
+**Routing.** The id is random base62, already uniform. Map ranges of the id's leading characters to partitions through a fixed slot table, the tool day 18 said was right for durable data: a human moves slots, the move is visible, and one writer owns each slot. No consistent-hashing ring, because a "miss" here is a lost row, not a refill.
+
+**A property you get for free.** The server mints the id. If one partition is down, mint ids whose slot lands on a healthy partition. Creates continue at three quarters of capacity; reads and deletes of pastes already on the dead partition fail with 500. Say this; it is the kind of consequence of "id is minted, not chosen" that a staff interviewer enjoys hearing you find.
+
+What staff sounds like here is refusing to stop at "the primary breaks." It names which number breaks (commit count, 1.75× over), which number hides behind it (row changes, about 14,000 a second), what that does to the replica and to vacuum, and then sizes the fix with headroom and operational cost. The first break is one sentence. The evidence is what makes it a staff answer.
+
 ### The other bet, so you can switch in one sentence
 
 If the CDN hit rate is **zero**, user egress of ~14 Gbit/s hits the origin. One 10 Gbit NIC is the first break, the same break as day 3, and it happens **before** you get to argue about commits, because the site is already failing the read. The fix is the CDN you should already have had, or more origin bandwidth if they forbid an edge. The primary's 3,500 commits are still real, but they are not first.
@@ -131,6 +155,22 @@ flowchart LR
 
 Two pictures. You are standing on the first. You can draw the second if they move the assumption. You do not merge them into one outage.
 
+Caption the first: "Reads have hit rates. Commits do not. 3,500 against 2,000." The dotted arrow from the CDN to the primary is labeled "not the commit path" on purpose: it is the answer to anyone who proposes a bigger edge for a write problem.
+
+Caption the second: "Same 10×, different assumption, different first break." Draw it smaller and to the side. You are not designing it; you are showing you know where the bet flips.
+
+## Failure the user sees, at 10× before the fix
+
+**Creators.** Commit latency climbs as the primary passes its ceiling. A create that has already PUT now waits on the insert. Day 19's slots fill with requests that are waiting on the primary, not the bucket. Creators see slow 201s, then 503s. Each 503 after a PUT leaves an orphan for the reaper, so orphan volume climbs with the incident.
+
+**Readers.** Mostly nothing. At the hit-rate bet, about 870 reads a second reach a primary whose read capacity is fine. Hot and cold links both work, slightly slower if the primary's CPU is shared with the commit pile-up.
+
+**Deleters.** Slow 204s, because a delete is a commit. Some 500s at the tail.
+
+**Durability.** Replica lag climbs because apply cannot keep up with 14,000 row changes a second. Nobody sees it until a failover, when the unshipped tail is much larger than the hundreds-per-second-of-lag you quoted at 1×.
+
+**After partitioning, one partition fails.** Creates continue on the other three, by minting into their slots. Reads and deletes of the dead partition's pastes, a quarter of all pastes, fail with 500 until promotion. A quarter of links broken for 30 seconds, instead of all creates broken.
+
 ## Trade-offs
 
 **Choice.** Under the stated hit rates, the primary's commit rate breaks first. Next fix is a bigger primary once, then partition by id, with the sweeper redesigned per partition. Not a CDN, not a queue of creates.
@@ -138,6 +178,8 @@ Two pictures. You are standing on the first. You can draw the second if they mov
 **Alternative.** "At 10× we shard everything and add Kafka." Or design only the zero-hit world and buy 14 Gbit/s of origin because you do not trust the edge.
 
 **What you give up.** A single dramatic answer that ignores assumptions. You also give up partitioning early, which would spread 350 commits/s across machinery you would have to operate at 1× for no win. You accept that this answer is conditional. If the ceiling of 2,000 is wrong by 5×, the first break might be the object count's operational story instead. You would rather be corrected on the ceiling than vague on the component.
+
+**Name the refusal inside each alternative.** Against "shard everything and add Kafka": you refuse to spread work across machinery for components that are not the break, and you refuse a queue in front of the 201. Against designing for the zero-hit world: you refuse to buy 14 Gbit/s of origin you would only need if the edge fails, when shedding covers that case. Against partitioning at 1×: you refuse eight databases for 350 commits a second. Each refusal names the assumption it would quietly drop.
 
 **10× of this 10×.** A hundred times the original ingest is not the question. If they push, partitions themselves have a commit ceiling, and you add partitions. You still do not queue the 201. The interesting part of 100× is the 450 TB and 45 billion objects, and whether 10 KB in a bucket is still the right packing. That is a day you have not earned. Mention packing only as the thing you would measure, not as a design you sketch now.
 
@@ -153,7 +195,17 @@ Two pictures. You are standing on the first. You can draw the second if they mov
 
 **If they challenge the 2,000 commits/s ceiling.** Recompute against theirs. If their number is 20,000, the primary does not break, and you owe them the second component: listing and restore at 4.5 billion objects, or replica apply lag if shipping 3,500 commits/s falls behind. Do not freeze on 2,000 out of pride. It was an assumption. The method is the ordering.
 
+**If they ask how many partitions.** "Two clear 3,500 at 2,000 each. I want each at half its ceiling, so four, a power of two for later splits. Each with a replica: eight instances, four failovers to rehearse. That's the cost of the fix."
+
+**If they ask whether batching the sweeper solves it.** "It makes expiry deletes cheap in commits. It doesn't touch row changes: inserts, deletes, outbox rows, about 14,000 a second at peak. That's WAL, vacuum, and replica apply. Partitioning splits all three."
+
+**If they ask what happens when one partition dies.** "I mint ids into the healthy partitions' slots, so creates keep going at three quarters. A quarter of existing pastes 500 until that partition promotes."
+
 **If they ask what you page on, at 1×, so 10× does not surprise you.** Primary commit latency and WAL ship lag. CDN hit rate. Origin egress. You want the commit latency to creep up in a graph before the 10× launch, not in the interview after it.
+
+## Say this in the room
+
+Ten times is about 3,500 creates a second and 174,000 reads. I'm betting the edge still takes 95%, so the origin sees about 8,700 reads and the primary under a thousand. Commits have no hit rate. At my planning ceiling of 2,000 a second on one primary, 3,500 is already 1.75× over, and behind the commit count is about 14,000 row changes a second once expiry and the outbox are counted: WAL the replica can't replay fast enough and dead tuples vacuum has to chase. So the first break is the primary's write path. I'd buy a bigger primary once; then partition by id, four partitions at half their ceiling each, through a fixed slot table, each with a replica. If a partition dies, I mint new ids into the healthy ones, so creates keep going and a quarter of existing links fail until promotion. I won't queue the create, and a bigger CDN doesn't touch commits. If the edge hit rate is actually zero, the origin NIC breaks first at 14 Gbit/s, and I page on that hit rate so I know which world I'm in.
 
 ## Kit artifact
 
