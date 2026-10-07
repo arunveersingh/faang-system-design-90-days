@@ -153,6 +153,8 @@ Location firehose dominates writes: 5k/s. Store for locations must be partitione
 
 10× city peak (60/s orders) breaks naive global locks or single-threaded matcher — shard by city/hex.
 
+**Staff arithmetic: location firehose vs match QPS.** 5,000 couriers × 1 Hz ≈ **5k location writes/s** — that path must not share a row lock with assign. Match peak ~6/s orders with ≤200 candidates each ⇒ ≤~1,200 geo reads/s if serialised naively; geo index keeps it bounded. Offer lease **15 s** × top-K=5 ⇒ up to ~30 outstanding offers per hot delivery wave; first accept wins, others get `already_taken`. No-courier SLA **3 minutes** at 6/s peak ⇒ customer-visible fail path must be designed, not left as spin forever.
+
 ### API and data
 
 - `POST /v1/deliveries` → `delivery_id`
@@ -185,6 +187,14 @@ Cannot refresh geo eligibility. **Refuse new offers** that need live location (f
 | Customer already assigned | Tracking may lag if control plane in dead region | Tracking continues if assignment durable elsewhere |
 | Courier | Offers stop in that city | Offers stop; on-trip courier continues with app GPS local |
 | Operator | Page region failover | Page location store; match SLA |
+
+**Double-assign under race.** Two accepts land; both couriers drive. Correctness miss. Assign must be single-row compare-and-set / lease fence — not "trust the clients."
+
+**Stale location offered.** Courier was fresh 2 minutes ago, now across town; customer waits on a phantom. Freshness bound (**30 s**) is part of matching, not a nice-to-have.
+
+**Late failure ignored to polish boxes.** Rubric Failure stays a 2. The hour is scored on the overlay.
+
+**Global courier scan.** Every request walks 5k couriers. Works on a whiteboard toy; dies at city peak and at 10×.
 
 ### Diagrams
 
@@ -222,15 +232,40 @@ Caption: "Late failure is an overlay on dispatch, not a reboot of the design."
 
 **Automatic region promote vs human gate.** RTO vs brownout risk.
 
+**Name the refusal inside each alternative.** Against scanning every courier: you refuse unbounded match work. Against dual exclusive assigns: you refuse two drivers for one job. Against dispatch on stale/missing location: you refuse fantasy ETAs. Against ignoring minute-25 failure: you refuse a tour without operability. Against turning the hour into an SLO poster with no matching: you refuse Phase 5 buzzwords as a substitute for product design.
+
 ### Say this in the room
 
-City-scale dispatch: deliveries shard by city, locations update at thousands per second into a freshness-bounded geo index, and matching offers a short lease to a small candidate set so exactly one accept becomes the assignee. If nobody takes the offer before the SLA, the customer gets a clear no-courier outcome, not a silent spin. When the writer region goes dark I fence and promote with minutes of match downtime and seconds of RPO on in-flight offers; when the location store dies I pause new offers rather than dispatch on fantasy coordinates. Existing assignments stay on durable delivery state.
+City-scale dispatch: deliveries shard by city, locations update at thousands per second into a freshness-bounded geo index, and matching offers a short lease to a small candidate set so exactly one accept becomes the assignee. If nobody takes the offer before the SLA, the customer gets a clear no-courier outcome, not a silent spin. When the writer region goes dark I fence and promote with minutes of match downtime and seconds of RPO on in-flight offers; when the location store dies I pause new offers rather than dispatch on fantasy coordinates. Existing assignments stay on durable delivery state. Double-assign is the correctness refuse; fantasy coordinates are the honesty refuse; spending the last ten minutes only polishing boxes is how Failure stays a 2.
 
 ### Staff depth: late failure scores the hour
 
 The first 25 minutes prove product matching. The last 10 prove you can overlay day 80/79-class failure without abandoning the user story. Double-assign is the correctness refuse. Fake locations are the honesty refuse.
 
 **What staff sounds like.** Lease. Single assignee. Freshness. Overlay with codes. Page target.
+
+### Talking points (late failure)
+
+**If they keep matching on last-known forever.** "Then you invent courier positions. Pause new offers; keep assignments on durable state."
+
+**If two accepts both "win."** "Assign is a single fence. Second gets already_taken. Show the code path."
+
+**If region dark and they dual-write cities.** "Shard by city; fence the dead writer; do not invent active-active mid-incident."
+
+**If no-courier is infinite spin.** "SLA then no_courier and notify. Silence is not matching."
+
+### More probes, with the answer
+
+**"What pages?"** Match SLA burn, location write success, region probe for the city control plane — not CPU on the matcher alone. **"What do you refuse?"** Global scan; double-assign; fake locations; skipping the late failure. **"What is the sensitive assumption?"** Couriers online and location Hz — 10× breaks a single matcher and a shared lock with assign. **"Where does the time go?"** Lock offer→accept→assign before deep-diving ETA ML; leave ten minutes for the overlay.
+
+### Failure at grading altitude
+
+| Late failure | Wrong overlay | Staff overlay |
+|---|---|---|
+| Writer region dark | Restart whole design | Fence + promote; matches 503 in city; RPO on in-flight offers |
+| Location store down | Invent coordinates / keep offering | Pause new offers; keep assignments; page store + match SLA |
+| Both accepts succeed | "Rare race" shrug | Single assign fence; already_taken |
+| No courier | Endless pending | SLA → no_courier notify |
 
 ### After you read this
 
