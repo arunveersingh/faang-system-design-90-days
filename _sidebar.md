@@ -99,5 +99,10 @@
   - [Day 83 — Migration while live](/days/83-migration-while-live.md)
   - [Day 84 — Mock: delivery dispatch](/days/84-mock-delivery-dispatch-with-a-late-failure.md)
 
-- **Phase 6 coming**
-  - Days 85–90 are not written. No pages, so nothing to click.
+- **Phase 6**
+  - [Day 85 — Kit hookup and the design log](/days/85-kit-hookup-and-the-design-log.md)
+  - [Day 86 — Mock: article serving](/days/86-mock-article-serving-read-heavy.md)
+  - [Day 87 — Debrief: read-heavy mock](/days/87-debrief-read-heavy-mock.md)
+  - [Day 88 — Mock: event intake](/days/88-mock-event-intake-write-heavy.md)
+  - [Day 89 — Debrief: write-heavy mock](/days/89-debrief-write-heavy-mock.md)
+  - [Day 90 — Mock: realtime lobby](/days/90-mock-realtime-lobby-kit-run.md)

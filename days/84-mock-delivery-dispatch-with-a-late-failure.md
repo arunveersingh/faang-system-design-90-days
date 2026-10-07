@@ -1,5 +1,5 @@
 <!-- day-nav -->
-[← Day 83 — Migration while live](83-migration-while-live.md) · [Checklist →](../CHECKLIST.md)
+[← Day 83 — Migration while live](83-migration-while-live.md) · [Day 85 — Kit hookup →](85-kit-hookup-and-the-design-log.md)
 
 # Day 84 — Mock: delivery dispatch with a late failure
 
@@ -236,7 +236,7 @@ The first 25 minutes prove product matching. The last 10 prove you can overlay d
 
 One amendment line: the concrete miss (global scan, double assign, no late failure, location without TTL, migration lecture instead of dispatch). Leave the scores alone.
 
-Phase 6 starts at day 85 (kit hookup). Days 85–90 may still be unwritten until that PR lands.
+Phase 6 starts at [day 85](85-kit-hookup-and-the-design-log.md) (kit hookup and the design log).
 
 ## Design log
 
@@ -245,4 +245,4 @@ Six scores and one gap — especially whether the late failure changed customer-
 ---
 
 <!-- day-nav -->
-[← Day 83 — Migration while live](83-migration-while-live.md) · [Checklist →](../CHECKLIST.md)
+[← Day 83 — Migration while live](83-migration-while-live.md) · [Day 85 — Kit hookup →](85-kit-hookup-and-the-design-log.md)

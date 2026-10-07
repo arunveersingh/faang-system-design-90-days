@@ -115,5 +115,16 @@ Day 63 and day 77 are the mandatory log entries for Phase 4. Do not open the ref
 Day 84 is the mandatory log entry for Phase 5. Do not open the reference until you have scored your own page. Days 78–83 stay closed during the day-84 timer.
 
 
+## Phase 6
+
+- [ ] Day 85 — [Kit hookup and the design log](days/85-kit-hookup-and-the-design-log.md)
+- [ ] Day 86 — [Mock: article serving (read-heavy)](days/86-mock-article-serving-read-heavy.md), closed book, not the day-85 setup lesson, then one design-log entry in your own notes
+- [ ] Day 87 — [Debrief: read-heavy mock](days/87-debrief-read-heavy-mock.md), score day 86 and rewrite one weak section
+- [ ] Day 88 — [Mock: event intake (write-heavy)](days/88-mock-event-intake-write-heavy.md), closed book, not a metrics replay, then one design-log entry in your own notes
+- [ ] Day 89 — [Debrief: write-heavy mock](days/89-debrief-write-heavy-mock.md), score day 88, compare to day 86, lock one rule for day 90
+- [ ] Day 90 — [Mock: realtime lobby (kit run)](days/90-mock-realtime-lobby-kit-run.md), kit realtime card or multiplayer-lobby fallback, then one design-log entry in your own notes
+
+Days 86, 88, and 90 are the mandatory log entries for Phase 6. Do not open a mock reference until you have scored your own page. Day 85 does not require the kit. Day 90 does not require the kit if you use the lobby fallback.
+
 
 [Start](START.md) · [How to study](HOW-TO-STUDY.md) · [Curriculum (map)](CURRICULUM.md)

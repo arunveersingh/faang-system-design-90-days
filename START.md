@@ -16,12 +16,12 @@ You read this in the browser. No clone. No install. One sitting is 30–40 minut
 
 **[Day 1](days/01-what-the-interview-is-grading.md)** — What the interviewer is grading. This is today's lesson.
 
-**[Checklist](CHECKLIST.md)** — Days 1–84 on paper. A tick in the browser is not saved.
+**[Checklist](CHECKLIST.md)** — Days 1–90 on paper. A tick in the browser is not saved.
 
-Days 1–84 are written. Days 85–90 are coming and are not links, so there is nothing empty to open. The [curriculum](CURRICULUM.md) is the map, not today's lesson.
+Days 1–90 are written. Start at [Day 1](days/01-what-the-interview-is-grading.md). The [curriculum](CURRICULUM.md) is the map, not today's lesson.
 
 The log is yours. The [template](design-log/TEMPLATE.md) is only a shape. Copy it into your own notes.
 
 Whiteboard figures are SVG on days 1–3 and 8–10, with the other diagrams, after the attempt line. The picture is not the opener. The other days use mermaid you can redraw. Search sits in the corner of the book.
 
-The interview kit is sold separately. It is not required to start, and it is not part of this book.
+The interview kit is sold separately. It is not required to start, and it is not part of this book. [Day 85](days/85-kit-hookup-and-the-design-log.md) shows how it attaches; [day 90](days/90-mock-realtime-lobby-kit-run.md) can run on the lobby fallback without it.
