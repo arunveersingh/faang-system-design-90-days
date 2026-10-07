@@ -92,6 +92,10 @@ Admit rate > success rate because payment fail; stop admits when reserved+sold h
 
 Waiting room down at t0: shed new joins with retry; do not open DB. Inventory still protected if checkout requires ticket signed by room.
 
+### Staff arithmetic: admission before reserve
+
+10k arrivals/s onto 500 units cannot each hit the stock row — you need a waiting room / ticket lottery in front so **reserve QPS** is bounded (e.g. hundreds/s) while **fairness** is named (FCFS tickets, random, or paid VIP — pick and say). Sharding the counter into 10 buckets of 50 oversells when each shard sells 50 independently under skew — refuse unless you accept oversell or use a single writer / lua / conditional with a global remaining. Overshoot: some oversell with compensation, or hard stop under remaining — product choice spoken.
+
 ## Diagrams
 
 ```mermaid
@@ -107,31 +111,53 @@ Caption: "DB sees R, not the crowd. Tickets gate checkout."
 
 ## Failure the user sees
 
-**Wait 20 minutes, sold out.** Honest sold-out; not 500s. Show progress honesty (approx).
+**Everyone hits inventory.** DB melts; most get 5xx; a few lucky oversell. Failure mode is chaos, not fairness.
 
-**Multi-tab.** One entry per user id; tabs share.
+**Unfair bot win.** No tickets/rate limits; scrapers take stock. Waiting room + bot controls.
 
-**Bots.** Rate limit + one entry; captcha; still imperfect — say residual.
+**Shard oversell.** Ten shards × 50 = 500 planned; skew sells 80+80+… → oversell. User buys item you cannot ship → cancel/compensate.
+
+**Ticket starvation.** Valid ticket but stock gone when they arrive — expected; clear UX. Ticket TTL short.
+
+**False "sold out" on blip.** 503 during admission ≠ sold out. Distinguish codes.
 
 ## Trade-offs
 
-**FIFO vs lottery.** Lottery resists early-bot; FIFO is intuitive.
+**Lottery vs FCFS queue.** Lottery resists bots at start; FCFS feels fairer. Pick.
 
-**Sticky "you will get one" vs probabilistic.** Never promise a unit until reserved.
+**Hard stop vs slight oversell.** Hard stop leaves leftover under contention; oversell needs cancel rate budget.
+
+**Name the refusal inside each alternative.** Against open reserve at arrival QPS: you refuse melting the stock path. Against sharded counters without a global remaining: you refuse accidental oversell. Against 503 looking like sold out: you refuse lying scarcity. Against "first HTTP wins" without tickets: you refuse bot dominance dressed as fairness.
+
+**10× arrivals.** Waiting room grows; reserve QPS cap stays. Stock correctness unchanged.
 
 ## Talking points
 
-**If they only scale the DB.** "One hot row still caps ~hundreds/s. Queue is mandatory."
+**If they shard the qty counter.** "Unless each shard has a split of remaining and you accept skew oversell, you will oversell. Prefer single remaining with admission in front."
+
+**If they ask fairness.** "Tickets: issued by lottery or queue order; redeem within TTL at bounded reserve QPS."
+
+**If they ask sold out vs error.** "Different codes. Retry-After for admission; 409/sold out for remaining=0."
+
+**If they ask bots.** "Admission + device/attestation as product allows; system design still needs the ticket bound."
+
+**If they ask what pages.** "Admission queue wait, reserve QPS, oversell/cancel rate."
 
 ## Say this in the room
 
-A flash sale is admission control: a waiting room issues one lottery entry per user and releases checkout tickets at a rate the single stock row can handle — hundreds a second, not a million. Checkout still does conditional reserve and idempotent pay, but only with a valid ticket. When reserved plus sold hits N, remaining waiters get sold out rather than a melted database. Fairness is the lottery rule I state; FIFO mostly elects bots. The edge sheds junk before it reaches the room.
+A flash sale puts admission control in front of inventory so ten thousand arrivals a second do not become ten thousand conditional updates on one row — tickets or a waiting room bound reserve QPS, and I name the fairness rule. I refuse sharding the remaining counter into independent buckets unless I explicitly accept oversell under skew. Sold out and admission-busy are different codes. Oversell, if allowed at all, has a compensation budget; otherwise hard stop when remaining hits zero. Checkout saga underneath is still day 69.
 
 ### Staff depth: why sharding the counter fails
 
-Two writers of one scarce count oversell unless you lock the sum — back to one row. Admit rate tracks that ceiling. Lottery per user beats FIFO under bots. Ticket required at checkout so a waiting-room outage cannot open the DB.
+Independent shard remainings oversell under skewed redeem. Global remaining + admission, or accept oversell math.
 
-**What staff sounds like.** Crowd ≠ DB QPS; fairness named; never promise a unit before reserve.
+**Fairness.** Spoken lottery/FCFS/VIP.
+
+**What staff sounds like.** Admission before reserve; refuse naive shard; distinct sold-out vs busy.
+
+### More probes, with the answer
+
+**"What pages?"** Name the user-visible lag or error metric from Failure — not only CPU. **"What do you refuse?"** Pick one refusal from Trade-offs and say the lie it prevents. **"What is the sensitive assumption?"** The estimate that flips the design if wrong by 10×.
 
 ## Kit artifact
 
