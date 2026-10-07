@@ -131,7 +131,7 @@ sequenceDiagram
   A-->>B: 302 Location
 ```
 
-Caption: "Redirect never writes. Fill is singleflighted. Tombstone on unknown."
+Caption: "Redirect never writes. Fill is singleflighted. Tombstone on unknown. Point at the alt miss path and say what a scanner does without the tombstone."
 
 ```mermaid
 flowchart LR
@@ -141,15 +141,19 @@ flowchart LR
   shared --> row
 ```
 
-Caption: "Writes touch the row. Reads fall through caches. Viral traffic dies in the left two boxes."
+Caption: "Writes touch the row. Reads fall through caches. Viral traffic dies in the left two boxes — if you drew the viral arrow into the primary, redraw."
 
 ## Failure the user sees
 
-**Primary down.** Create 503. Redirect: warm cache and in-process copies still 302 until TTL; cold ids 503, not 404.
+**Primary down.** Create 503. Redirect: warm cache and in-process copies still 302 until TTL; cold ids 503, **not** 404. A 404 here would teach the user the link is gone when you cannot know. Page on create error rate and on cold-redirect 503s, not on 404 rate — 404 is a normal miss, expiry, or delete.
 
-**Cache restart during a campaign spike.** Hot key singleflights; long tail of other ids can melt the primary — shed unknown-id floods; page on primary read QPS, not on 404 rate alone.
+**Cache restart during a campaign spike.** Hot key singleflights; long tail of other ids can melt the primary — shed unknown-id floods with short tombstones; page on primary read QPS and on fill latency, not on 404 rate alone. At 8,700/s on the hot id, a 50 ms primary fill without singleflight is ~435 in-flight fills on that key alone (8,700 × 0.05); singleflight collapses it to one per process.
 
-**Delete of a viral link.** New redirects 404 after tombstone; some apps may 302 for 1–2 s from in-process copy. Say the bound.
+**Delete of a viral link.** New redirects 404 after tombstone; some apps may 302 for 1–2 s from in-process copy. Say the bound out loud. If you also had a shared-cache TTL of 60 s without a tombstone write on delete, that window is a minute of successful redirects to a URL the creator believes is dead — same class of lie as a CDN-cached 301.
+
+**Scanner / enumeration.** Random 8-char ids miss. Without tombstones every miss is a primary get. At even 1,000 miss/s you have bought a read DoS. Tombstone TTL of a few seconds turns that into cache hits returning 404.
+
+**Create succeeds, next redirect 404.** You returned 201 before the row was durable, or you wrote the row to a replica the redirect path does not read. That is a broken ack — day 29 territory. Fix: 201 after primary commit; redirect reads primary or a cache filled from primary, not an async replica as source of truth.
 
 ## Trade-offs
 
@@ -159,27 +163,41 @@ Caption: "Writes touch the row. Reads fall through caches. Viral traffic dies in
 
 **Hash partition of id vs time-based.** Hash so create load spreads. Viral still one row — that is a cache problem, not a "pick a better shard key" problem. Salting the id would break the lookup.
 
+**Name the refusal inside each alternative.** Against year-long CDN-cached 301s: you refuse a delete that is theater for a day. Against exact click counters on the 302 path: you refuse a write on the hottest read. Against encoding the destination in the short id: you refuse a link you cannot delete, expire, or rotate. Against vanity as the default id space: you refuse an interview that becomes squatting and reserved words. Against reading redirects from an async replica: you refuse a 201 the next GET cannot find. Against salting a viral id to "spread load": you refuse a redirect that no longer has one key to look up.
+
+**10×.** Redirects ~348,000/s peak; one viral id ~87,000/s. In-process hot copy becomes mandatory. Creates at ~3,500/s still fit a partitioned primary if the short id encodes a slot. The design does not grow a new consistency product — it grows process-local copies and shed rules.
+
 ## Talking points
 
 **Hand-waving.** "We'll cache it." Where, for how long, what does delete do, and what happens on fill stampede?
+
+**Hand-waving.** "Base62 id, done." Birthday collision math at 10M creates/day: 8 chars of base62 is 62^8 ≈ 2.1×10^14; collision risk is negligible at a year of creates. 6 chars is 62^6 ≈ 5.7×10^10 — still fine for a year at 10M/day (~3.65×10^9 ids) if you check-and-retry on conflict. Say the length and the retry, not "unguessable" as a vibe.
 
 **If they ask about custom vanity.** Separate namespace, reserved words, rate limit per account, and still the same redirect path. Do not let vanity eat the hour.
 
 **If they ask whether redirect increments a counter.** "Not on the 302 path if it has to be exact. Sampled logs or async. Exact click ledgers are a different product."
 
+**If they ask what the user sees when primary is down.** "Creates 503. Warm redirects still 302 until TTL. Cold redirects 503, not 404 — a blip must not look like a deleted link."
+
+**If they ask how delete meets an in-process copy.** "Tombstone the shared cache on delete; in-process dies with its 1–2 s TTL. I say that bound. I do not claim instant global purge."
+
+**If they ask about multi-region create.** "Out today. One region for the row. Active-active create means id allocation and conflict rules I am not buying in this hour."
+
 ## Say this in the room
 
-Ten million creates a day is about 116 a second; with a hundred redirects per link that is about 35,000 redirects a second at peak, and one campaign link at a quarter of that is about 8,700 a second on one id — a hot-key problem, not a bandwidth problem. Create inserts an id-to-URL row and returns 201; redirect is cache-aside with singleflight and a short in-process copy for keys that are on fire, returning 302 without writing. Delete tombs the cache; I refuse year-long CDN-cached 301s because then delete is theater. Unknown ids get a short tombstone so scanners do not melt the primary. Primary down is 503 on cold redirects, not 404.
+Ten million creates a day is about 116 a second; with a hundred redirects per link that is about 35,000 redirects a second at peak, and one campaign link at a quarter of that is about 8,700 a second on one id — a hot-key problem, not a bandwidth problem: 8,700 × 200 bytes is about 1.7 MB/s. Create inserts an id-to-URL row and returns 201 only after the primary commit; redirect is cache-aside with singleflight and a short in-process copy for keys that are on fire, returning 302 without writing. Delete tombs the shared cache; in-process copies die within a second or two — I refuse year-long CDN-cached 301s because then delete is theater. Unknown ids get a short tombstone so scanners do not melt the primary. Primary down is 503 on cold redirects, not 404.
 
 ### Staff depth: the viral redirect is a hot key, not a NIC problem
 
-8,700 redirects/s × 200 bytes ≈ **1.7 MB/s** — your laptop can print that. The cliff is metadata lookups and fill stampedes, the same arithmetic as day 11: misses ≈ arrival × fill latency. Singleflight turns that into fills-per-process. Tombstones on unknown ids stop scanners from making every miss a primary read.
+8,700 redirects/s × 200 bytes ≈ **1.7 MB/s** — your laptop can print that. The cliff is metadata lookups and fill stampedes, the same arithmetic as day 11: in-flight fills ≈ arrival × fill latency. At 50 ms without singleflight that is ~435 in flight on one key; singleflight turns it into fills-per-process. Tombstones on unknown ids stop scanners from making every miss a primary read.
 
 **Create vs redirect capacity.** Creates at ~350/s peak are pastebin-sized writes. Do not let a redesign for viral reads complicate create with synchronous analytics counters. Counters are async or sampled.
 
 **301 vs 302, with delete math.** If max-age is 24 hours on a 301 at the CDN, a delete is a day late for some viewers. If you need delete within a minute, you take short max-age or private cache and pay origin-adjacent hits. At 200-byte responses that cost is fine.
 
-**What staff sounds like.** Separating the viral id's QPS from egress, putting singleflight on fill, refusing year-long CDN 301s when delete is a product promise, and keeping create free of exact click ledgers.
+**Birthday length, spoken.** 8-char base62 ≈ 2.1×10^14 space; at 10M/day you are not in birthday trouble. Check-and-retry on the rare conflict. Do not mint ids from a single global counter if that counter is a hotspot — prefer per-slot counters or random-with-retry so create scales with the hash partition.
+
+**What staff sounds like.** Separating the viral id's QPS from egress, putting singleflight on fill, refusing year-long CDN 301s when delete is a product promise, keeping create free of exact click ledgers, and saying 503 not 404 when the primary cannot answer a cold redirect.
 
 ## Kit artifact
 
