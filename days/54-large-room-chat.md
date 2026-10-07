@@ -103,6 +103,13 @@ Cold storage by `(room_id, seq)` ranges. Catch-up: client provides `after_seq`; 
 
 Slow socket: drop live frames and send a **resync** notice (`must_catch_up_from_seq`). Do not buffer unbounded per connection (day 19). Room-wide send rate limit protects the log.
 
+### Worked path: keynote room
+
+1. Append to room log (O(1)); 201 = durable seq.
+2. Publish to room topic; gateways with interest deliver; one body fetch per gateway via singleflight.
+3. Slow phone: resync notice, history `after_seq` — not an hour of buffered frames.
+4. Refuse per-member read receipts; optional approx viewer count.
+
 ## Diagrams
 
 ```mermaid
@@ -116,7 +123,7 @@ flowchart TB
   hist[History GET] --> log
 ```
 
-Caption: "O(1) write to log. Live path is subscription fan-out. History reads the same log."
+Caption: "O(1) write to log. Live path is subscription fan-out. History reads the same log. If send fans to N inboxes, redraw."
 
 ```mermaid
 sequenceDiagram
@@ -132,25 +139,31 @@ sequenceDiagram
   C->>L: GET after_seq=100
 ```
 
-Caption: "Slow consumer resyncs from log; gateway does not buffer forever."
+Caption: "Slow consumer resyncs from log; gateway does not buffer forever. Point at the resync notice."
 
 ## Failure the user sees
 
-**Room leader down.** Sends 503 for that room; election window. History may be readable from replicas if you allow lag; live publish pauses.
+**Room leader down.** Sends 503 for that room; election window (~30 s). History may be readable from replicas if you allow lag; live publish pauses. Other rooms on other leaders stay healthy — page on per-room send errors, not only global.
 
-**Pubsub partition.** Appends succeed (201) but live silent; clients notice gap and catch up via history. Page on publish lag vs log head.
+**Pubsub partition.** Appends succeed (201) but live silent; clients notice gap (seq jump) and catch up via history. Page on publish lag vs log head — the scary metric is "log advanced, live silent," not create failures.
 
-**Gateway overload in mega room.** Shed connections with retry; prefer sticky regional gateways. User reconnects and catch-ups.
+**Gateway overload in mega room.** Shed connections with retry; prefer sticky regional gateways. User reconnects and catch-ups. Do not buffer unbounded per socket (day 19) — that OOMs the gateway during a keynote.
 
-**Not-a-member send.** 403. Cached membership must invalidate on kick within a bound (e.g. 30 s) — kicked user may send briefly; say it.
+**Not-a-member send.** 403. Cached membership must invalidate on kick within a bound (e.g. 30 s) — kicked user may send briefly; say it. Same bound applies to subscribe: a kicked socket may get a few more frames.
+
+**Slow consumer.** Misses live frames; receives resync notice with `must_catch_up_from_seq`; history fill. User-visible: a jump, then catch-up, not a melted phone battery from a multi-hour socket buffer.
 
 ## Trade-offs
 
-**Per-member inbox vs room log.** Inbox is day 53 at small N. At 100k, inbox is celebrity bomb. Room log wins.
+**Per-member inbox vs room log.** Inbox is day 53 at small N. At 100k, inbox is celebrity bomb (100k writes/msg × 20 msg/s = 2M writes/s). Room log wins.
 
 **Full-body pubsub vs seq-only.** Seq-only reduces broker bandwidth; gateways may stampede the log on a hot message — mitigate with gateway-local singleflight get of body by seq.
 
 **Exact presence.** Approximate presence is enough; exact is a different storm.
+
+**Name the refusal inside each alternative.** Against per-member inbox copy on send: you refuse the celebrity bomb in a chat costume. Against per-member read receipts: you refuse O(members) writes on every open. Against unbounded per-socket buffers: you refuse gateway OOM during a spike. Against one process fanning 100k full payloads: you refuse a box that cannot exist. Against exact global presence for 500k: you refuse a second megasystem beside chat.
+
+**10× room size.** Cap stays a product decision (500k). Topology still log + pubsub + gateway interest; you add gateway capacity and shard pubsub, not per-member rows.
 
 ## Talking points
 
@@ -158,9 +171,15 @@ Caption: "Slow consumer resyncs from log; gateway does not buffer forever."
 
 **If they compare to Kafka.** "Room log is Kafka-shaped: one partition per room, consumers are gateways. You do not invent a new broker brand mid-interview — you need the access pattern."
 
+**If they ask what 201 means.** "Durable in the room log. Not delivered to 100k devices. Offline members see it on history when they open."
+
+**If they ask about the 2M fan-outs/s naive math.** "That is why send is O(1) append + publish, not a loop over members. Gateways with interest sets do the fan-out locally."
+
+**If they ask about backpressure.** "Slow socket gets a resync pointer, not an infinite buffer. Room-wide send rate limit protects the log — 429 the chatty sender."
+
 ## Say this in the room
 
-A large room is one append log with a monotonic seq, not N copies on send — copying to 100,000 members is the celebrity fan-out bomb with a chat costume. 201 means the log has the message; live delivery is pubsub to gateways that hold sockets, with a single body fetch per gateway and resync from history when a socket is too slow to buffer. I refuse per-member read receipts at this scale. Catch-up is `after_seq` on the same log offline users already need.
+A large room is one append log with a monotonic seq, not N copies on send — copying to 100,000 members at 20 messages a second would be about two million writes a second, the celebrity fan-out bomb with a chat costume. 201 means the log has the message; live delivery is pubsub to gateways that hold sockets, with a single body fetch per gateway via singleflight and resync from history when a socket is too slow to buffer. I refuse per-member read receipts at this scale. Catch-up is `after_seq` on the same log offline users already need. Kick invalidates membership within about 30 seconds of cached lag I say out loud.
 
 ### Staff depth: gateway singleflight for body fan-out
 
@@ -170,7 +189,9 @@ Seq-only pubsub + per-gateway fetch of body by seq prevents the broker from carr
 
 **Kicked member lag.** Cached membership may allow send for ~30 s — say the bound; invalidate on kick.
 
-**What staff sounds like.** O(1) append, subscription fan-out, resync not unbounded buffers, refuse per-member receipts.
+**Storage at cap.** 20 msg/s × 2 KB × 86400 ≈ 3.5 GB/day/room — retention is a spoken budget, not an infinite log.
+
+**What staff sounds like.** O(1) append, subscription fan-out, resync not unbounded buffers, refuse per-member receipts, and the 2M-writes/s naive number said before the diagram.
 
 ## Kit artifact
 
