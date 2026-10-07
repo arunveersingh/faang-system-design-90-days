@@ -67,6 +67,8 @@ Pick **create success** as the staff answer unless they force reads. Creates are
 
 Error budget remaining is what lets you ship. If you have burned 80% of the budget by week two, you freeze risky deploys. That sentence is the operability half of the SLO. Without it, the SLO is wallpaper.
 
+**Staff arithmetic: multi-window burn in the room.** You do not need Google's exact multi-window spreadsheet on the whiteboard. You do need two speeds: **fast burn** (exhaust the 30-day budget in ~2 hours at the current miss rate → page now) and **slow burn** (exhaust in ~2 days → ticket, freeze risky deploys, no phone). Absolute "error rate > 1%" without budget context either pages every deploy blip or sleeps through a weekend leak. At 350/s peak, a sustained **5%** miss rate is ~17.5 misses/s ≈ **63,000/hour** — that is a fast-burn Sev, not a ticket.
+
 ## API and data
 
 You do not invent a new API. You instrument the one you have:
@@ -75,6 +77,8 @@ You do not invent a new API. You instrument the one you have:
 - Miss event: timeout, 5xx, or `committed` then body missing / row missing within the read-after-write window you promised (planning: **2 seconds**).
 
 Store burn in your metrics path (day 62/64 shape): a counter of successes and misses per minute, and a recorded budget.
+
+**What you refuse to count as success.** HTTP 201 alone. `/health` 200. CDN edge hit ratio. A create that returned 201 while the body PUT was still "pending" on a queue you never drained.
 
 ## Design
 
@@ -99,10 +103,14 @@ A one-minute 50% fail spike at low QPS may be noise. A burn-rate alert: if you c
 - One SLO for create+read+delete as a mushy average.
 - Counting only HTTP 200 on POST without the read-after-write check (hides broken acks).
 - "We'll add SLOs after launch." The miss already exists; you are only choosing whether to measure it.
+- Four nines spoken before you recompute peak-minute burn (see Estimates).
+- Treating CDN-green as create-healthy.
 
 ### Staff depth: budget arithmetic in the room
 
 Monthly budget ≈ 300k failed creates at 99.9% and ~116/s average. A 10-minute hard outage at 350/s ≈ 210k — most of the budget. Therefore a create outage is a **Sev-level** event even when "the site still serves CDN hits." Separate a **read SLI** on origin fill if they ask; do not let edge cache hits laundry-wash origin death.
+
+**Worked burn example to say aloud.** Budget 300k / month. Current miss rate 20/s sustained → hours-to-exhaust ≈ 300000/20/3600 ≈ **4.2 hours** → still fast enough to page (under a 6h "page" threshold many teams use; tighten to 2h if you want fewer gray zones). Miss rate 0.5/s → ≈ **167 hours** → ticket and deploy freeze, not a 3 a.m. phone ring.
 
 **What staff sounds like.** Operation, window, budget, user-visible miss, page on burn.
 
@@ -119,7 +127,7 @@ flowchart LR
   B -->|slow burn| T[Ticket]
 ```
 
-Caption: "The SLI follows the create journey. Burn pages a human before the month is already lost."
+Caption: "The SLI follows the create journey. Burn pages a human before the month is already lost. Edge 200s never enter this box."
 
 ```mermaid
 sequenceDiagram
@@ -135,18 +143,27 @@ sequenceDiagram
     U->>A: GET id within 2s
     A-->>U: 200 body
     Note over A: success
+  else 201 then body missing
+    A-->>U: 201 + id
+    U->>A: GET id
+    A-->>U: 404 or 5xx
+    Note over A: broken ack — correctness page
   end
 ```
 
-Caption: "A 201 without a findable body is a miss, not a success with a retry."
+Caption: "A 201 without a findable body is a miss, not a success with a retry. Page it harder than a clean 503."
 
 ## Failure the user sees
 
 **Clean create outage (bucket down).** Creator gets 503. No link. Misses burn. CDN still serves hot pastes — do not call the product "up."
 
-**Broken ack (201, body missing).** Creator believes they saved. Next GET fails. This is worse than 503. Page on `row_exists_body_missing`, not only on 5xx rate.
+**Broken ack (201, body missing).** Creator believes they saved. Next GET fails. This is worse than 503. Page on `row_exists_body_missing`, not only on 5xx rate. Support hears "I have the link and it is gone" — that is not a normal miss; it is a lie you already shipped.
 
 **Budget already gone.** You keep missing. Freezing deploys is the operational move; the user still sees errors until the dependency recovers. The SLO did not heal the store; it told you to stop making the hole deeper.
+
+**Slow leak, not a bang.** Create success at 99.7% for two weeks — no single Sev, budget quietly empty by week three. Slow-burn ticket + deploy freeze exists so this is visible before the quarter poster is already fiction.
+
+**Fairness 429 storm counted as success.** Creators cannot save; dashboards look "available." If 429s are how you shed, either carve them out of the SLI explicitly or count them as misses against the product promise.
 
 ## Trade-offs
 
@@ -156,6 +173,8 @@ Caption: "A 201 without a findable body is a miss, not a success with a retry."
 
 **Exclude fairness 429s.** Protects the budget from abuse; can hide chronic capacity debt if 429s are how you "succeed."
 
+**Name the refusal inside each alternative.** Against journey-free uptime: you refuse a green `/health` while creates 503. Against averaging all endpoints: you refuse CDN hits laundry-washing create death. Against 201-without-GET: you refuse broken acks counted as success. Against four nines without peak math: you refuse a poster that one five-minute outage already falsifies.
+
 ## Talking points
 
 **If they say "four nines."** "Show me the budget at peak. A 5-minute hard outage at 350/s is about 105,000 failures. That is already past a 99.99% month at our rate. We either buy the topology that makes that outage impossible, or we stop saying four nines."
@@ -164,15 +183,25 @@ Caption: "A 201 without a findable body is a miss, not a success with a retry."
 
 **If they average all endpoints.** "Deletes and CDN hits will wash create failures. One operation."
 
+**If they page on raw error count.** "Without budget context that pages every blip or sleeps through a leak. Fast burn pages; slow burn tickets."
+
+**If they say HA means multi-region.** "Multi-region is a cost and RPO story (day 80). State the create SLO and the miss first; then ask whether the topology can keep it."
+
+**If they ignore broken acks.** "A 201 the next GET cannot find is not availability. It is a correctness page."
+
 ## Say this in the room
 
-Create success over 30 days at 99.9%: a 201 whose id GETs within two seconds. That leaves roughly three hundred thousand failed creates a month at our rate, and a ten-minute peak outage burns most of it — so create unavailability is a page, not a shrug while the CDN still looks green. We alert on error-budget burn, not on a one-minute blip alone. A 201 that cannot be read is a miss, not a success. Reads get their own SLI if you want edge and origin separated; I will not hide origin death inside cache hits.
+Create success over 30 days at 99.9%: a 201 whose id GETs within two seconds. That leaves roughly three hundred thousand failed creates a month at our rate, and a ten-minute peak outage burns most of it — so create unavailability is a page, not a shrug while the CDN still looks green. We alert on error-budget burn, not on a one-minute blip alone: exhaust-in-two-hours pages a human; exhaust-in-two-days is a ticket and a deploy freeze. A 201 that cannot be read is a miss, not a success, and it pages harder than a clean 503. Reads get their own SLI if you want edge and origin separated; I will not hide origin death inside cache hits.
 
 ### Staff depth: the miss is the product
 
 Nines without a journey are theater. Broken acks are correctness pages. Budget math turns "HA" into a decision about multi-region spend.
 
 **What staff sounds like.** One operation. One miss. One budget. One page.
+
+### More probes, with the answer
+
+**"What pages?"** Fast SLO burn on create (budget exhausts in ~2h at current miss rate), and any sustained broken-ack — not CPU, not CDN hit ratio. **"What do you refuse?"** Journey-free uptime; averaging create with edge reads; counting 201 without read-after-write. **"What is the sensitive assumption?"** Peak create rate and outage duration — 10 minutes at 350/s already spends most of a 99.9% month. **"Where does the time go in the interview?"** Lock the operation and success sentence before debating nines; then do the peak-minute burn math so four-nines talk is forced to buy topology or retreat.
 
 ## Worked numbers you can reuse
 
@@ -182,7 +211,9 @@ Nines without a journey are theater. Broken acks are correctness pages. Budget m
 | Peak creates | 350/s | Incident burn math |
 | SLO | 99.9% / 30d | ≈ 300k misses allowed |
 | 10 min hard outage @ peak | ≈ 210k misses | Most of the monthly budget |
+| 5 min @ peak | ≈ 105k misses | Already past a 99.99% month |
 | Read-after-write window | 2s | Broken ack boundary |
+| Fast-burn page threshold | ~2h to exhaust | Phone vs ticket |
 
 If the interviewer changes the target to 99.99%, recompute before arguing topology. Four nines at this peak rate forbids multi-minute region failovers unless creates are multi-region active with sync cost.
 
@@ -193,6 +224,8 @@ If the interviewer changes the target to 99.99%, recompute before arguing topolo
 **"Reads are the product."** Then write a **separate** read SLI: origin fill success for cache misses. Do not average it with creates. CDN hit success is mostly the edge vendor's path; your origin miss path still needs a number if cold pastes matter.
 
 **"Error budget is corporate theater."** Without budget, every page is either chronic noise or chronic lateness. Budget is how you decide to freeze deploys after a bad week — operability, not bureaucracy.
+
+**"Client retries will hide the misses."** Only if you count logical intents by idempotency key. Counting every HTTP attempt turns one sick minute into a vanity massacre — or hides a real outage inside "eventual success" if you only look at final 201s without latency.
 
 ## Kit artifact
 
