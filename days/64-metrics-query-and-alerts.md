@@ -85,6 +85,10 @@ Evaluator loads rules, computes expression over window. **Pending** until `for` 
 
 Querier down: dashboards 503; alerts may use separate path. Alert manager down: buffer eval or risk delayed pages — page on alert-manager lag. Never let eval stall ingest (already separate).
 
+### Staff arithmetic: raw vs downsampled, alert fan-out
+
+A 30-day graph at 1 s resolution for one series is ~2.6e6 points — fine alone; times a dashboard of 50 charts times 5k viewers is how query melts. Downsample to 1 min / 5 min / 1 h blocks by age; query planner picks the step from the time range. Alert rules: **for-duration** (e.g. 5 minutes below SLO) is the anti-flap; without it a blip pages at 3 a.m. Grouping by service so one bad deploy pages once, not once per replica. A rule that expands to a million series gets a hard cap and is **disabled**, not "best effort."
+
 ## Diagrams
 
 ```mermaid
@@ -101,21 +105,37 @@ Caption: "Reads choose resolution. Alerts are a state machine, not a raw thresho
 
 ## Failure the user sees
 
-**Flapping CPU.** Without `for`, pages every 30 s — fatigue. With `for: 5m`, only sustained.
+**Dashboard stampede.** Query path saturates; graphs spin. Must not stop alert evaluation — isolate pools. User-visible: slow dashboards, alerts still fire.
 
-**Rule matches 1e6 series.** Shed; disable rule; page owner.
+**Alert flap.** No for-duration → page every scrape blip. On-call hatred is a product failure of the rule design.
 
-**Downsample lag.** Long-range graphs under-count briefly — say bound.
+**Rule cardinality bomb.** One PromQL-shaped regex expands to 1e6 series; notifier and eval melt. Cap and disable; page the rule owner.
+
+**Ingest healthy, eval lagging.** Alerts fire late; SLO burn looks fine until it is not. Page on eval lag vs wall time, not only on ingest QPS.
+
+**Wrong step on long range.** UI asks 30 days at 1 s; query scans forever. Planner must coerce step or 400 the request.
 
 ## Trade-offs
 
-**Eval in query engine vs separate.** Separate so dashboards cannot starve pages.
+**Shared query+eval pool vs split.** Split. Dashboard chaos must not delay pages.
 
-**Exact p99 on downsampled.** Impossible — refuse lying; store histograms.
+**Exact raw forever vs downsample.** Downsample older data; say retention per resolution.
+
+**Name the refusal inside each alternative.** Against one pool for dashboards and alerts: you refuse on-call latency tied to a viral dashboard. Against no for-duration: you refuse flap. Against unbounded rule fan-out: you refuse eval death. Against serving 30-day 1 s raw as the default: you refuse scan storms. Against paging per replica without grouping: you refuse 50 pages for one deploy.
+
+**10× query QPS.** More query replicas; downsample stays. Alert eval capacity is sized on rule count × series, not on dashboard fashion.
 
 ## Talking points
 
-**If they page on every sample.** "That is a blip pager. for-duration + group."
+**If they only talk ingest.** "Day 62. Today is read path and pages."
+
+**If they ask how alerts avoid flap.** "For-duration pending→firing; hysteresis on resolve if needed; group by service."
+
+**If they ask what happens when a rule is huge.** "Hard series cap; disable and notify the owner. Do not 'try'."
+
+**If they ask about recording rules.** "Precompute expensive expressions into new series — capacity trade for eval CPU. Optional if time remains."
+
+**If they ask what pages.** "Eval lag, notifier error rate, and disabled-rule count — not dashboard p99 alone."
 
 ## Say this in the room
 
@@ -123,11 +143,17 @@ Dashboards hit a query path that picks raw or downsampled blocks based on the ti
 
 ### Staff depth: for-duration is the anti-flap
 
-A CPU blip every 30 s without `for: 5m` pages forever. Group by service so one outage is one page. Cap series matched per rule; circuit-break Cartesian explosions.
+Pending → firing only after the condition holds for N minutes. Resolve may use hysteresis. Without this, scrape noise pages humans.
 
-**Downsample honesty.** p99 on 5m averages is a lie — store histograms or refuse the panel.
+**Pool split.** Alert eval and dashboard query do not share a fate.
 
-**What staff sounds like.** State machine + grouping + rule caps; isolate eval from dashboard stampedes.
+**Cardinality of rules.** Cap expansion; disable offenders.
+
+**What staff sounds like.** Downsample planner, for-duration, group pages, isolate eval from dashboards.
+
+### More probes, with the answer
+
+**"What pages?"** Name the user-visible lag or error metric from Failure — not only CPU. **"What do you refuse?"** Pick one refusal from Trade-offs and say the lie it prevents. **"What is the sensitive assumption?"** The estimate that flips the design if wrong by 10×.
 
 ## Kit artifact
 
