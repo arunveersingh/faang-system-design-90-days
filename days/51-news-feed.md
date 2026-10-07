@@ -111,6 +111,10 @@ On post, write only the author's post store. Feed read: load followees, fetch ea
 
 **Ordering.** Per-feed merge by `created_at`. No global total order across the product. Clock skew of a few seconds between authors is acceptable; refuse to invent a distributed transaction for feed order.
 
+### Worked numbers on the whiteboard
+
+Median push: 580 posts/s × 150 followers ≈ **87k** timeline writes/s. Celebrity: 5e7 / 1e5 writes/s ≈ **500 s**. Heavy pull without author-recent: 1% of 70k opens × 2,000 followees ≈ **1.4e6** tail reads/s. Write both bombs before you pick a fashion. Threshold instinct (~10k) is the bridge to day 52 — today you must feel why pure forms break.
+
 ## Diagrams
 
 ```mermaid
@@ -128,7 +132,7 @@ sequenceDiagram
   T-->>F: 50 post ids
 ```
 
-Caption: "201 before fan-out. Over-threshold authors skip the queue (pull on read)."
+Caption: "201 before fan-out. Over-threshold authors skip the queue (pull on read). Point at the queue and say what pages when it stalls."
 
 ```mermaid
 flowchart TB
@@ -141,17 +145,19 @@ flowchart TB
   feed --> recent
 ```
 
-Caption: "Skew gate. Median push. Celebrity pull."
+Caption: "Skew gate. Median push. Celebrity pull. If both arrows from post go into the inbox, you erased the gate."
 
 ## Failure the user sees
 
-**Fan-out queue down.** Creates still 201; median followers see posts late or not until repair. Page on oldest unfaned post age. Pull-path authors unaffected.
+**Fan-out queue down.** Creates still 201; median followers see posts late or not until repair. Page on oldest unfanned post age and on queue depth, not on create error rate — creates are fine. Pull-path authors unaffected. The user-visible miss is "my friend's post is missing for minutes," not a 500 on compose.
 
-**Timeline store hot partition.** One celebrity who was under threshold and then exploded — inbox writes pile on. Move them to pull; do not "optimize the worker."
+**Timeline store hot partition.** One celebrity who was under threshold and then exploded — inbox writes pile on. Move them to pull; do not "optimize the worker." At 50M followers and 100k writes/s you are still looking at ~500 seconds; a faster worker does not change the product shape.
 
-**Feed open, author-recent cache cold.** Merge stampedes popular authors; singleflight + replica of recent lists. User sees slower refresh, not empty if inbox has push history.
+**Feed open, author-recent cache cold.** Merge stampedes popular authors; singleflight + replica of recent lists. User sees slower refresh, not empty if inbox has push history. If fill fails for one celebrity, drop that author from this page rather than 503 the whole feed.
 
-**Unfollow.** Next feed open filters; old inbox rows may remain until trim. User must not see the unfollowed author after refresh — filter is the contract.
+**Unfollow.** Next feed open filters; old inbox rows may remain until trim. User must not see the unfollowed author after refresh — filter is the contract. A delete-from-timeline job that lags is storage hygiene, not the privacy promise.
+
+**Follow then immediate feed.** Under push, the new followee's older posts are not backfilled into the inbox unless you say so — usually you only get new posts after follow, plus pull of author-recent on the next merge if you choose. Say the backfill rule; "empty until they post again" is a product choice, not a bug you hide.
 
 ## Trade-offs
 
@@ -161,25 +167,37 @@ Caption: "Skew gate. Median push. Celebrity pull."
 
 **Exact chronological vs "roughly recent."** You take created_at order with second-level skew. You refuse Lamport-ordering the social graph.
 
+**Name the refusal inside each alternative.** Against pure push for everyone: you refuse a 500-second fan-out of one celebrity post. Against pure pull for everyone: you refuse tens of thousands of feed opens merging thousands of author tails without a cache. Against 201-after-fan-out: you refuse a compose button that is an outage for famous authors. Against ranking in this hour: you refuse a model interview dressed as system design. Against global total order of all posts: you refuse a hotspot that buys nothing the home feed needs.
+
+**10× posts.** ~5,800/s → ~870k median timeline writes/s if still push — shard count and worker pool, not a new fan-out religion. Celebrity remains pull; the bomb scales with followers, not with sitewide post rate.
+
 ## Talking points
 
 **Hand-waving.** "We'll use Cassandra timelines." Which key, who writes, what a 50M fan-out does, and when 201 returns.
+
+**Hand-waving.** "Fan-out-on-write, industry standard." At what follower count does your write rate times followers exceed a minute of work? If you cannot say the number, it is fashion.
 
 **If they ask about ranking.** "Out of scope. Chronological. Ranking is a different product on the same candidates."
 
 **If they ask about media.** "Opaque id. Bytes are day 14/28/58. Feed carries the pointer."
 
+**If they ask what a follower of only celebrities sees.** "Pull merge from author-recent caches on every open — day 52 makes that precise. Today I refuse to push those inboxes."
+
+**If they ask about unfollow privacy.** "Filter on read against the current follow set. Stale inbox rows are fine; showing the author after unfollow is not."
+
 ## Say this in the room
 
-Fifty million posts a day is about 580 a second; feed opens are tens of thousands a second at peak. Median authors have about 150 followers, so push fan-out is about a few hundred thousand timeline writes a second — fine if partitioned by follower. A fifty-million-follower post is not: that is minutes of writes and a melted cluster, so those authors stay pull — feed merge reads author-recent caches and mixes with the push inbox. 201 returns when the post is durable, not when fan-out finishes. Unfollow is filtered on read. No ranking model in this interview.
+Fifty million posts a day is about 580 a second; feed opens are about 70,000 a second at peak. Median authors have about 150 followers, so push fan-out is about 87,000 timeline writes a second on average — fine if partitioned by follower. A fifty-million-follower post is not: at 100,000 writes a second that is about 500 seconds of work, so those authors stay pull — feed merge reads author-recent caches and mixes with the push inbox. 201 returns when the post is durable, not when fan-out finishes. Unfollow is filtered on read so I do not issue tens of millions of deletes. No ranking model in this interview.
 
 ### Staff depth: push cost vs pull cost, with the celebrity bomb named
 
-Median push: 580 posts/s × 150 followers ≈ **87,000** timeline writes/s — partition by follower and it is capacity. Celebrity push: 5e7 writes at 1e5/s ≈ **500 s**. That number is why the threshold exists. Feed open for a heavy follow graph without author-recent cache is another bomb: 2,000 followees × 70,000 opens/s at even 1% heavy users.
+Median push: 580 posts/s × 150 followers ≈ **87,000** timeline writes/s — partition by follower and it is capacity. Celebrity push: 5e7 writes at 1e5/s ≈ **500 s**. That number is why the threshold exists. Feed open for a heavy follow graph without author-recent cache is another bomb: 2,000 followees × 70,000 opens/s at even 1% heavy users ≈ 1.4e6 author-tail reads/s.
 
 **201 vs fan-out complete.** If 201 waits on push fan-out, celebrity create is an outage. Outbox after post commit. Followers of pull authors see posts on next merge.
 
-**What staff sounds like.** Computing both bombs before picking a fashion. Ranking stays out. Unfollow is filter-on-read so you do not issue 50M deletes.
+**Sensitive assumption.** Follower skew. If every author has ≤1,000 followers, pure push is comfortable — say when that assumption would change the design, then refuse it for this product.
+
+**What staff sounds like.** Computing both bombs before picking a fashion. Ranking stays out. Unfollow is filter-on-read so you do not issue 50M deletes. 201 never waits on the queue.
 
 ## Kit artifact
 

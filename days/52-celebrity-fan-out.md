@@ -97,6 +97,13 @@ Hard gate at 10k: simple, a bit unfair near the boundary. Hysteresis: enter pull
 
 A celebrity post may notify differently (day 55). Do not fan-out push notifications 1:1 to 50e6 devices on the create path either — that is the same bomb with a different store.
 
+### Worked path: create under the gate
+
+1. Persist post on author partition; 201.
+2. Read cached `fanout_mode`. Push → outbox fan-out. Pull → update author-recent ring (prefer same shard commit as the post).
+3. Hard fuse: if a push job would exceed ~20k inbox writes, abort to pull and flip the flag.
+4. Feed open splits followees by mode; merges inbox + parallel recent gets with singleflight.
+
 ## Diagrams
 
 ```mermaid
@@ -110,7 +117,7 @@ flowchart TB
   pulls --> merge
 ```
 
-Caption: "Create never waits on 50M writes. Feed pays merge for pull followees."
+Caption: "Create never waits on 50M writes. Feed pays merge for pull followees. Point at the fuse: max inbox writes per post."
 
 ```mermaid
 sequenceDiagram
@@ -127,15 +134,19 @@ sequenceDiagram
   F-->>U: merged 50
 ```
 
-Caption: "Parallel recent gets; singleflight on each hot author key."
+Caption: "Parallel recent gets; singleflight on each hot author key. A miss on one author must not empty the whole page."
 
 ## Failure the user sees
 
-**Wrong mode flag (still push at 50M).** Create 201s; queue depth explodes; other authors' fan-out lags for minutes. Page on fan-out lag and on jobs per post. Mitigation: hard max inbox writes per post (e.g. 20k); overflow aborts to pull and flips flag.
+**Wrong mode flag (still push at 50M).** Create 201s; queue depth explodes; other authors' fan-out lags for minutes. Page on fan-out lag and on jobs per post — not on create 5xx, which stay healthy. Mitigation: hard max inbox writes per post (e.g. 20k); overflow aborts to pull and flips flag. Without the fuse, one bad flag is a sitewide fan-out outage dressed as success.
 
-**Celebrity recent cold.** Feed opens miss; singleflight fills from author partition. Brief slow feeds, not missing posts if fill works. If fill fails: user sees feed without that celebrity until next refresh — prefer 503 on that author's slot only if you must, not empty whole feed.
+**Celebrity recent cold.** Feed opens miss; singleflight fills from author partition. Brief slow feeds, not missing posts if fill works. If fill fails: user sees feed without that celebrity until next refresh — prefer dropping that author's slot, not emptying the whole feed.
 
-**User follows 500 celebrities.** Merge CPU and fan-out of gets dominate. Cap and degrade: show inbox + top N by recent engagement of followees (without a model: top N by follower_count or last-open affinity you already store). Say the cap.
+**User follows 500 celebrities.** Merge CPU and fan-out of gets dominate. Cap and degrade: show inbox + top N by follower_count or last-open affinity you already store (no ranking model). Say the cap — e.g. **500** pull followees merged per open.
+
+**Author crosses 10k mid-flight.** In-flight push jobs for the last under-threshold post may still write tens of thousands of inbox rows — fine. New posts must read the flipped flag. A race that pushes one more post after flip is why the **max writes per post** fuse exists.
+
+**Hide/delete celebrity post.** Author-recent ring must drop the id within the same lag SLO as day 51's "few seconds" for normals — sync update on the author shard. In-process copies on feed servers can lag 1–2 s; say it.
 
 ## Trade-offs
 
@@ -145,15 +156,25 @@ Caption: "Parallel recent gets; singleflight on each hot author key."
 
 **Push below threshold vs pull everyone.** Pull everyone simplifies create and kills median feed latency. You refuse it for this product shape.
 
+**Name the refusal inside each alternative.** Against push-for-celebrities "async, it will finish": you refuse a 500-second storm that delays everyone else's fan-out. Against no max-writes fuse: you refuse a bad flag that melts the cluster while creates return 201. Against pull-everyone: you refuse median feed latency death. Against rewriting 50M inboxes when crossing down to push: you refuse a migration dressed as a threshold tweak. Against notifying 50M devices inline on create: you refuse day 55's bomb on today's path.
+
+**10× feed opens.** ~700k opens/s. Celebrity recent keys need in-process copies and singleflight more, not a return to push. The gate is about write amplification, not read QPS.
+
 ## Talking points
 
 **If they ask "is 10k magic?"** "Order-of-magnitude where push cost exceeds a few hundred ms of worker time at our write rate. Tune with hysteresis. The point is a gate, not the integer."
 
 **If they ask about backfill when crossing down to push.** "Optional. New posts push; history stays pullable from author store. Do not rewrite 50M inboxes."
 
+**If they ask what pages.** "Fan-out lag, jobs per post, and celebrity-recent fill latency. Create success rate lying healthy while the queue melts is the failure mode."
+
+**If they ask about a user who follows only celebrities.** "Every open is a pull merge. Cap pull followees; author-recent must be hot. There is no push inbox to hide behind."
+
+**If they ask whether follower_count must be exact.** "Gate can be approximate. Hysteresis 10k/8k absorbs drift. I will not put a sitewide exact count lock on the create path."
+
 ## Say this in the room
 
-Celebrities never push: a fifty-million-follower post would need about 500 seconds of timeline writes at 100k a second, so the gate flips them to pull and create only updates the author-recent ring. Feed merge reads the push inbox for normal followees and parallel recent gets for celebrities, with singleflight on hot authors. I use hysteresis around the threshold so we do not flap, and a hard cap on inbox writes per post so a bad flag cannot melt the cluster. 201 is post durability, not fan-out completion.
+Celebrities never push: a fifty-million-follower post would need about 500 seconds of timeline writes at 100k a second, so the gate flips them to pull and create only updates the author-recent ring on the author shard. Feed merge reads the push inbox for normal followees and parallel recent gets for celebrities, with singleflight on hot authors. I use hysteresis around the threshold so we do not flap, and a hard cap of about 20k inbox writes per post so a bad flag cannot melt the cluster — overflow aborts to pull and flips the mode. 201 is post durability, not fan-out completion. Hide drops the id from the recent ring in the same breath as the post row.
 
 ### Staff depth: the hard cap that saves you from a bad flag
 
@@ -163,7 +184,9 @@ Even with a gate, a bad `fanout_mode=push` on a 50M account must not enqueue 50M
 
 **Morning stampede on celebrity recent.** Singleflight + in-process copy (day 11/50). In-process cost: a delete/hide of a celebrity post can lag a second on that process.
 
-**What staff sounds like.** Naming the max-writes fuse before the happy hybrid diagram.
+**Notification side.** Do not enqueue 50M push-notification jobs on create either — same bomb, different store (day 55).
+
+**What staff sounds like.** Naming the max-writes fuse before the happy hybrid diagram. Computing 500 seconds out loud. Refusing inbox rewrites when the mode flips down.
 
 ## Kit artifact
 

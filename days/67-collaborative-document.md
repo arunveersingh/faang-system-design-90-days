@@ -89,6 +89,10 @@ Offline clients queue ops; on reconnect transform/merge. If semantic conflict (b
 
 Leader crash: promote; clients reconnect with `after_server_seq`. Fence old leader (day 36) or dual leaders fork the doc — unforgivable.
 
+### Staff arithmetic: presence vs durable ops
+
+A doc with 50 concurrent editors sending ops at 5/s is 250 ops/s — easy. The cliff is **fork**: two servers accept conflicting histories without a merge rule, or a snapshot that does not include the log prefix it claims. Presence (cursors) is ephemeral and lossy; durable text is op log + periodic snapshot. Offline edit for hours then reconnect needs either CRDT merge or OT with transformation against the missing gap — pick one and name the conflict UX (last-write markers, manual resolve). Blob size: 1 MB doc × versions — trim snapshots; keep log until snapshot covers it.
+
 ## Diagrams
 
 ```mermaid
@@ -106,33 +110,55 @@ Caption: "One sequencer per doc. Fan-out after durable."
 
 ## Failure the user sees
 
-**Forked doc from two leaders.** Silent split brain — fence.
+**Fork.** Two users see divergent permanent text with no merge path — unforgivable. Root causes: dual primary without fencing, snapshot/log mismatch, client applying ops twice without idempotency.
 
-**Lost unacked ops.** Client retries; idempotent client_op_id.
+**Lost presence.** Cursors disappear on reconnect — OK; document must not.
 
-**Presence wrong.** Annoying, not data loss.
+**Offline collision.** Both edited same paragraph; on sync, conflict markers or CRDT merge — say which. Silent overwrite is a product bug.
+
+**Snapshot without log prefix.** New joiner loads snapshot that is ahead of applied ops or behind — gap. Snapshot must name the log sequence it covers; catch-up applies ops after that seq.
+
+**Huge doc.** Op amplify; snapshot more often; refuse unbounded history in RAM per connection.
 
 ## Trade-offs
 
-**OT central vs CRDT.** OT needs leader; CRDT heavier clients. Either fine if you name persistence and reconnect.
+**OT vs CRDT.** OT needs a central sequencer; CRDT merges without it but metadata grows. Pick for the infra you already have (day 53 leader vs day 42 conflicts).
 
-**Snapshot frequency.** More snapshots = faster join, more write amp.
+**Presence in the durable log.** Refuse — presence is ephemeral.
+
+**Name the refusal inside each alternative.** Against dual-primary write without merge: you refuse forks. Against presence as durable ops: you refuse log bloat and lying history. Against silent overwrite on offline sync: you refuse data loss dressed as sync. Against snapshot that does not pin a log seq: you refuse gap bugs. Against "Firestore will save us" without naming merge: you refuse a brand as a consistency story.
+
+**10× editors on one doc.** Still one sequencer/shard for OT; CRDT metadata and fan-out of ops dominate — cap concurrent editors per doc if needed.
 
 ## Talking points
 
-**If they LWW the whole buffer.** "Two typists destroy each other. Ops."
+**If they store every cursor move.** "Presence ephemeral. Durable log is text ops."
+
+**If they ask OT vs CRDT.** "OT with a doc leader if I already have one; CRDT if offline-first without a leader. I name conflict UX either way."
+
+**If they ask how a late joiner loads.** "Snapshot at seq S + ops after S. Snapshot without S is a bug."
+
+**If they ask about binary attachments.** "Pointers like chat; bytes day 14/68. Ops reference ids."
+
+**If they ask what pages.** "Fork detectors (hash divergence), apply lag, snapshot age."
 
 ## Say this in the room
 
-Each document has a single leader that assigns a server sequence to editing operations, persists them, then fans out — so concurrent typing is merged by OT or by CRDT rules I name, not by last-write-wins on the whole file. Presence is ephemeral heartbeats, not durable ops. Clients reconnect from a snapshot plus op log using after_server_seq. Two leaders without a fence can fork the document, so election fencing is part of the data plane. Semantic conflicts that cannot merge get an explicit UX, not a silent overwrite.
+A collaborative doc is a durable op log with periodic snapshots pinned to a sequence, plus ephemeral presence that I refuse to put in the log. I pick OT with a per-doc sequencer or CRDT for offline-first — and I name the conflict UX when two offline edits collide. A fork — permanent divergent text — is unforgivable; fencing the writer and pinning snapshots to log seq are how we avoid it. New joiners load snapshot at seq S then catch up. Cursors can drop; characters cannot.
 
 ### Staff depth: fork is unforgivable
 
-Two leaders without a fence diverge the doc silently. Epoch fence on apply. Presence is ephemeral — wrong cursors annoy; wrong text loses trust.
+Dual writers without a merge rule, or snapshot/log mismatch, produce forks. Idempotent apply of ops; snapshot.seq mandatory.
 
-**Offline.** Queue ops; transform on reconnect; semantic conflicts get markers, not whole-doc LWW.
+**Presence.** Ephemeral channel; lossy OK.
 
-**What staff sounds like.** Sequencer or CRDT named; persistence before fan-out; fence drawn.
+**Offline.** Named merge or conflict markers — never silent clobber.
+
+**What staff sounds like.** Snapshot pinned to seq; presence out of the log; fork named as the Sev-1.
+
+### More probes, with the answer
+
+**"What pages?"** Name the user-visible lag or error metric from Failure — not only CPU. **"What do you refuse?"** Pick one refusal from Trade-offs and say the lie it prevents. **"What is the sensitive assumption?"** The estimate that flips the design if wrong by 10×.
 
 ## Kit artifact
 

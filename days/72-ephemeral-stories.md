@@ -83,6 +83,10 @@ Sweeper deletes rows and objects; tray trim. CDN may still hit until max-age —
 
 Clients can screenshot; server TTL is not DRM. Say it.
 
+### Staff arithmetic: four clocks of expiry
+
+Stories die in **~24 h**. Expiry must hit (1) row `expires_at`, (2) object lifecycle/delete, (3) cache/CDN max-age ≤ remaining TTL, (4) fan-out inbox trim — miss any one and a "expired" story still plays. Fan-out is day 51/52 shaped but with aggressive trim. Views counters are approximate; exact view ledgers are a different product on the hottest keys.
+
 ## Diagrams
 
 ```mermaid
@@ -99,27 +103,51 @@ Caption: "Every layer carries the same deadline. UI hide alone is not enough."
 
 ## Failure the user sees
 
-**CDN serves story +2 hours.** Mis-set max-age — severity high for ephemeral product.
+**Expired story still plays.** CDN/cache max-age too long, or object not deleted, or inbox still has the id without expiry check on read. Fix all four clocks.
 
-**Row deleted, object remains.** Orphan bytes; lifecycle should catch; not publicly addressed if bucket private + signed URL expired.
+**Story vanishes early.** Clock skew or aggressive trim — bound.
+
+**Celebrity story fan-out.** Same bomb as day 52; pull for huge authors.
+
+**View count exact on read path.** Write amplification on viral story — refuse exact; sample/async.
+
+**Delete by owner.** Must tombstone before max-age; same honesty as pastebin delete vs edge.
 
 ## Trade-offs
 
-**Pull active stories vs push trays.** Same hybrid as feed; trays must TTL trim.
+**TTL in row vs bucket lifecycle only.** Both; row gates reads; bucket cleans bytes.
+
+**Name the refusal inside each alternative.** Against CDN max-age 24h fixed at publish: you refuse serving after expiry when remaining TTL was 1 minute. Against exact view counters on the read path: you refuse a write storm. Against push fan-out for celebrity stories: you refuse day 52's bomb. Against forgetting object delete: you refuse orphan bytes and accidental resurrection via direct URL.
+
+**10× stories.** Same four clocks; more trim workers.
 
 ## Talking points
 
-**If they only hide in UI.** "API and CDN still serve — fail."
+**If they only set DB TTL.** "Cache and CDN and objects too. Four clocks."
+
+**If they ask view counts.** "Approximate. Exact is async and not on the play path."
+
+**If they ask fan-out.** "Day 51/52 hybrid; trim hard at expiry."
+
+**If they ask direct object URL.** "Signed short TTL URLs; bare bucket URLs refused."
+
+**If they ask what pages.** "Served-after-expiry rate (should be ~0), trim lag, object delete lag."
 
 ## Say this in the room
 
-Stories carry expires_at into the row, the object lifecycle, the fan-out tray pointers, and the CDN max-age — which is set to the remaining TTL, not a flat day — so a GET after expiry is 404 and an edge cannot resurrect the media for hours. Fan-out follows the feed hybrid; trim expired pointers. Screenshots are outside server TTL; we do not pretend otherwise. Early delete tombs all layers the same way.
+Ephemeral stories expire in about a day, and that expiry has to hit the row, the object lifecycle, the cache max-age, and the fan-out trim — miss one and an expired story still plays. Fan-out follows the news-feed hybrid so celebrities do not push millions of inbox rows. View counts are approximate; I refuse exact counters on the play path. Owner delete tombs caches with a bound, same honesty as the pastebin. Signed URLs keep direct object access from resurrecting bytes.
 
-### Staff depth: max-age = remaining TTL
+### Staff depth: expiry in row, object lifecycle, cache max-age, and fan-out trim — all four
 
-Flat 24h CDN cache resurrects stories after expiry. Signed URLs expire; bucket lifecycle matches. Tray pointers trim. UI hide alone fails the product.
+CDN max-age must be ≤ remaining TTL at publish/refresh. Read path checks `expires_at`.
 
-**What staff sounds like.** Four layers listed with the same deadline; screenshot honesty.
+**Celebrity.** Pull (day 52).
+
+**What staff sounds like.** Four clocks named; refuse exact view writes on play; signed URL bound.
+
+### More probes, with the answer
+
+**"What pages?"** Name the user-visible lag or error metric from Failure — not only CPU. **"What do you refuse?"** Pick one refusal from Trade-offs and say the lie it prevents. **"What is the sensitive assumption?"** The estimate that flips the design if wrong by 10×.
 
 ## Kit artifact
 

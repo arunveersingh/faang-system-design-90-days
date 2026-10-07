@@ -89,6 +89,10 @@ Tombstone wins vs silent resurrect unless client had unseen newer rev — then c
 
 Chunk-level; commit atomic at metadata.
 
+### Staff arithmetic: chunks, not whole files
+
+A 4 GB file retouched by 1 MB should upload ~1 MB of new chunks if content-defined chunking works — that is the product. Server assigns versions (monotonic per file id), not client mtimes. Two devices save offline → conflict copies or merge stub; clocks lying is expected on laptops. Dedup by chunk hash across users is optional and a privacy/legal talk — default per-namespace dedup. Resume: chunk checklist, not restart of 4 GB.
+
 ## Diagrams
 
 ```mermaid
@@ -109,31 +113,55 @@ Caption: "Chunks first. Metadata CAS on parent_rev. Server assigns rev."
 
 ## Failure the user sees
 
-**Two offline edits.** Conflict copy appears — user merges manually. Say it.
+**mtime wins.** Laptop clock skew overwrites cloud with older bytes — classic bug. Server version / causal token wins; mtime is display only.
 
-**Clock set to 1970.** File still syncs; sort by server_rev in UI change feed.
+**Conflict silent clobber.** Second device loses edits. Prefer `file (conflict).ext` copy or explicit merge; say it.
 
-**Partial chunk upload.** Commit refused; retry chunks; no half file.
+**Upload dies at 99%.** Without resume, user retries 4 GB. Chunk status must allow continue.
+
+**Dedup across tenants.** Accidental cross-user visibility or legal issue — refuse global dedup unless explicitly in scope with hash auth.
+
+**Delete vs offline create.** Offline device recreates deleted file — define tombstone vs resurrect policy.
 
 ## Trade-offs
 
-**Conflict copy vs block.** Copy keeps sync flowing; block is safer for shared truth folders.
+**Fixed-size vs content-defined chunks.** CDC better for shifts; more CPU. Fixed simpler.
 
-**Global chunk dedup.** Saves storage; timing side channels / privacy — often per-namespace dedup only.
+**Conflict copy vs block sync.** Copy is understandable; block needs UX.
+
+**Name the refusal inside each alternative.** Against mtime as truth: you refuse clock skew clobbers. Against whole-file reupload always: you refuse burning user bandwidth. Against silent overwrite on conflict: you refuse lost edits. Against global cross-user chunk store without design: you refuse a privacy incident. Against client-assigned versions: you refuse forks.
+
+**10× sync QPS.** More metadata shards by user; chunk store is object storage. Conflict rules unchanged.
 
 ## Talking points
 
-**If they sort by mtime.** "Client clocks lie. Server rev."
+**If they trust mtime.** "Clocks lie. Server version is causality."
+
+**If they reupload whole files.** "Chunk and resume. 4 GB with a 1 MB edit should not redo 4 GB."
+
+**If they ask conflict UX.** "Conflict copy by default for consumer sync; enterprise may prefer block-until-resolve."
+
+**If they ask about encryption.** "Client-side encryption means server dedup breaks; say the trade."
+
+**If they ask what pages.** "Conflict rate, failed uploads stuck, version fork detectors."
 
 ## Say this in the room
 
-Files are chunked into content-addressed objects and a metadata commit that CAS-updates on parent_rev so two devices cannot silently overwrite each other — the loser syncs and either merges or creates a conflicted copy. The server assigns revisions; client mtime is cosmetic because clocks lie. Deletes are tombstones with retention so we do not resurrect casually. Large uploads resume at chunk granularity; the file does not appear until the commit lands.
+File sync uploads content-defined chunks to object storage and tracks a server-monotonic version per file — client mtime is never the conflict winner because laptop clocks lie. A 4 GB file with a 1 MB edit should transfer about a megabyte of new chunks and resume if the network dies. Two offline writers get an explicit conflict copy or merge UX, not a silent clobber. Deletes are tombstones with a resurrect policy for offline races. I refuse global cross-tenant dedup unless privacy is in scope.
 
 ### Staff depth: mtime is not causality
 
-Client clocks lie (1970, future). CAS on `parent_rev` with server-assigned rev. Conflicted copies for consumer sync; chunks content-addressed so resume and dedupe work. Tombstones with retention beat silent resurrect.
+Server version / vector wins. mtime is UI sort at best.
 
-**What staff sounds like.** Chunks then metadata commit; refuse mtime winners.
+**Resume.** Per-chunk checklist.
+
+**Conflicts.** Named UX; no silent overwrite.
+
+**What staff sounds like.** Chunks + server versions; refuse mtime; resume spoken for large files.
+
+### More probes, with the answer
+
+**"What pages?"** Name the user-visible lag or error metric from Failure — not only CPU. **"What do you refuse?"** Pick one refusal from Trade-offs and say the lie it prevents. **"What is the sensitive assumption?"** The estimate that flips the design if wrong by 10×.
 
 ## Kit artifact
 

@@ -216,7 +216,7 @@ sequenceDiagram
   W->>DB: complete succeeded
 ```
 
-Caption: "Unique fire identity. Lease for liveness. Idempotent side effect."
+Caption: "Unique fire identity. Lease for liveness. Idempotent side effect. Point at the unique insert as the double-dispatch fence."
 
 ```mermaid
 flowchart TB
@@ -226,17 +226,21 @@ flowchart TB
   dup --> idemp[Handler no-ops on run_id]
 ```
 
-Caption: "At-least-once delivery. Exactly-once effects need the handler."
+Caption: "At-least-once delivery. Exactly-once effects need the handler. If your diagram ends at the second webhook without idempotency, redraw."
 
 ### Failure the user sees, per person
 
-**Job owner, dispatcher lag 2 minutes.** Runs late; dashboard shows delay. Not silently skipped unless past miss policy.
+**Job owner, dispatcher lag 2 minutes.** Runs late; dashboard shows delay. Not silently skipped unless past miss policy. Page on `max(now - next_fire_at)` for active jobs — that is the user-visible "cron is late" signal.
 
-**Worker dies after webhook 200 before complete.** Second worker retries webhook; owner must idempotent — else double charge / double email. You document run_id as the key.
+**Worker dies after webhook 200 before complete.** Second worker retries webhook; owner must be idempotent — else double charge / double email. You document `run_id` as the key. This is the classic crash window: side effect happened, durable complete did not.
 
-**Paused job.** No new fires; in-flight finishes or cancels per policy.
+**Paused job.** No new fires; in-flight finishes or cancels per policy you state. User expects pause to mean "no more side effects soon" — bound in-flight drain.
 
-**10× fire rate.** Shard dispatchers; lease DB write capacity named.
+**Lease stuck forever.** If heartbeats continue on a wedged worker that never completes, the run never reclaims — max run wall-clock must kill the lease. Without it, one bad worker pins a job forever.
+
+**Catch-up storm after outage.** Ten missed hourly emails fire at once if catch-up is uncapped — refuse; default skip with missed marks, or cap N.
+
+**10× fire rate.** Shard dispatchers; lease DB write capacity named. Little's law: if mean run becomes 60 s, concurrency ×30 — sensitive assumption.
 
 ### Trade-offs you should have named
 
@@ -245,6 +249,8 @@ Caption: "At-least-once delivery. Exactly-once effects need the handler."
 **Queue vs DB claim.** Queue scales claim QPS; DB claim is simpler at 2k/s. At 10× prefer queue with the run row still authoritative.
 
 **Exactly-once scheduler myth.** You refuse it. At-least-once + idempotent handlers.
+
+**Name the refusal inside each alternative.** Against a single process cron: you refuse a SPOF with no durable next_fire_at. Against exactly-once delivery without handler help: you refuse a lie. Against uncapped catch-up: you refuse a stampede of side effects after repair. Against lease without heartbeat/TTL: you refuse forever-stuck runs. Against Kafka-only as the schedule: you refuse losing pause/miss policy.
 
 ### Probes the interviewer will use, with the answer
 
@@ -256,13 +262,25 @@ Caption: "At-least-once delivery. Exactly-once effects need the handler."
 
 **"Why not only Kafka?"** "Need durable next_fire_at, pause, and miss policy. The log alone is not the schedule."
 
+**"How many workers?"** "Little's law: 6,000 fires/s × 2 s ≈ 12,000 concurrent; at 50 concurrent callbacks per worker ≈ 240 workers — order of magnitude."
+
+**"Clock skew?"** "Due comparison uses DB now(); lease times too. App NTP skew of minutes is a page, not a new protocol."
+
 ### What you did not need
 
 Search indexes. Seat maps. Geo cells. Video CDNs. Metrics cardinality budgets as the deep dive — though "max runs concurrent" is capacity of the same family.
 
 ## Say this in the room
 
-About two thousand fires a second average with two-second runs is about four thousand in flight — tens of thousands of workers at peak if runs get longer. Each job has a next_fire_at; dispatchers shard the due set and insert a run keyed by (job_id, scheduled_at) so the same tick cannot double-insert, then advance next. Workers claim with a lease and heartbeat; if a worker dies the lease expires and another may call the webhook again, so the run_id is the idempotency key for the side effect — I do not promise exactly-once delivery. After an outage I skip missed ticks by default and mark them, unless the job opts into capped catch-up. Dispatcher lag is what I page on, not a single cron process.
+About two thousand fires a second average with two-second runs is about four thousand in flight — about twelve thousand at six thousand fires a second peak, hundreds of workers if each handles tens of concurrent callbacks. Each job has a next_fire_at; dispatchers shard the due set and insert a run keyed by (job_id, scheduled_at) so the same tick cannot double-insert, then advance next. Workers claim with a lease and heartbeat; if a worker dies the lease expires and another may call the webhook again, so the run_id is the idempotency key for the side effect — I do not promise exactly-once delivery. After an outage I skip missed ticks by default and mark them, unless the job opts into capped catch-up. I page on dispatcher lag, not on a single cron process, and I refuse an uncapped catch-up storm.
+
+### Staff depth: lease + unique fire id are the whole game
+
+Without `(job_id, scheduled_at)` uniqueness, two dispatchers double-fire. Without leases, dead workers pin runs forever or you get uncontrolled duplicates. Idempotency on the webhook is mandatory because the crash window after a 200 is real.
+
+**Sensitive assumption.** Mean run duration. 2 s → 4k concurrent at 2k fires/s; 60 s → 120k concurrent. Say it before shopping for workers.
+
+**What staff sounds like.** Little's law once, unique fire id, lease TTL, skip-by-default miss policy, refuse exactly-once as a scheduler promise.
 
 ### After you read this
 

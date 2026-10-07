@@ -93,6 +93,21 @@ Reserve/hold → pay → commit. Hold TTL > payment budget. Crash window: paid b
 
 Fungible qty vs unique seats. Flash queue when hold QPS or fairness needs it — not default at 2k/s.
 
+### Staff arithmetic: contention, not storage
+
+5M seat rows is nothing. The cliff is **2,000 hold attempts/s** on one hot event, each CAS-updating 1–8 seats in one transaction on the event shard. A venue-wide lock makes every balcony buyer wait on the front-row fight — refuse it. Map cache at 1–2 s means false "green" → 409 on hold (OK) vs false "red" (false scarcity). Hold TTL (5–10 min) must exceed payment budget; paid-but-uncommitted recovery commits (day 49/65). At hundreds of arrivals/s onto one section, consider day-70 admission — not default at 2k/s if the shard keeps up.
+
+
+### Worked path: hold two seats
+
+1. Idempotency lookup; if key exists return prior hold.
+2. Begin txn on event shard: for each seat, `UPDATE ... SET held WHERE available`.
+3. Any miss → rollback → 409 with conflicting ids.
+4. Else write hold row + expiry; commit; 201.
+5. Map cache may still show green for ~1 s; next hold gets 409.
+
+**Commit after pay.** Payment webhook/ success → `held→sold` if hold valid; else refund. Sweeper only flips `held→available` when `expires_at < now` AND state still held.
+
 ## Diagrams
 
 ```mermaid
@@ -112,11 +127,15 @@ Caption: "All-or-nothing on the named seats. No venue lock."
 
 ## Failure the user sees
 
-**Two buyers one seat.** Second 409. Map may still show available briefly.
+**Two buyers one seat.** Second 409 with conflicting seat ids. Map may still show available for 1–2 s — user taps, gets 409, picks another. That is correct contention, not data loss.
 
-**Leader down.** 503 holds, not 409 empty venue.
+**Leader/shard down for the event.** Holds 503, **not** 409 empty venue. 409 would teach "sold out" when you cannot know. Page on hold 503s per event.
 
-**Sweeper vs pay.** Same false scarcity / commit rules as day 49.
+**Sweeper vs pay race.** Sweeper releases; pay path commits — state guard wins for commit if still held; if already available, recovery must not invent seats (day 49). User who paid gets seats or an automatic refund path you name.
+
+**Idempotent retry of hold.** Same key returns the same hold_id and expiry; must not double-hold different seats.
+
+**Partial selection without a transaction.** A1 held, A2 fails, user thinks they have a pair — refuse; all-or-nothing in one txn.
 
 ## Trade-offs
 
@@ -124,23 +143,39 @@ Caption: "All-or-nothing on the named seats. No venue lock."
 
 **Exact map vs cached.** Cached with seconds of lag.
 
+**Name the refusal inside each alternative.** Against venue-wide lock: you refuse balcony latency tied to front-row fights. Against check-then-set in the app: you refuse a race that double-sells. Against salting seat ids: you refuse breaking uniqueness. Against hold TTL shorter than pay budget: you refuse charging for seats you already released. Against treating 503 as 409: you refuse fake sellouts during elections.
+
+**10× hold attempts.** ~20k/s on a hot event — shard by event still; may need section-level leaders or day-70 waiting room. Unique seat CAS stays the correctness tool.
+
 ## Talking points
 
 **If they lock the venue.** "Hot seat must not stop the balcony."
 
 **If they salt seats.** "Seat identity is the key; salting breaks uniqueness."
 
+**If they ask vs day 49.** "Fungible qty vs named seats. Same sweeper/commit guard shape; different row shape."
+
+**If they ask about the map lying.** "1–2 s lag: false available → 409 is OK. False held that blocks others is false scarcity — keep map TTL short."
+
+**If they ask what happens after pay succeeds and commit crashes.** "Recovery looks up payment intent and commits the hold if still valid; else refund. Hold TTL must outlive that window."
+
 ## Say this in the room
 
-Assigned seats are conditional updates on `(event, seat)` rows inside one transaction so a hold of A1 and A2 is all-or-nothing — not a venue-wide lock and not an app-level check-then-set. Holds expire with a sweeper and a state guard against commit, same shape as warehouse reservation but the SKU is a unique seat. The map can lag a second and show false availability that becomes 409 on hold. Payment stays outside; the hold must outlive the payment budget so we never release seats we already charged for.
+Assigned seats are conditional updates on `(event, seat)` rows inside one transaction so a hold of A1 and A2 is all-or-nothing — not a venue-wide lock and not an app-level check-then-set. At 2,000 hold attempts a second on a hot event the fight is row contention, not storage of 50k seats. Holds expire with a sweeper and a state guard against commit, same shape as warehouse reservation but the SKU is a unique seat. The map can lag a second and show false availability that becomes 409 on hold; leader loss is 503, not a fake sellout. Payment stays outside; the hold must outlive the payment budget so we never release seats we already charged for.
 
 ### Staff depth: unique seats vs fungible qty
 
 Day 49 increments a counter; day 61 CAS-updates named seat rows in one transaction (all-or-nothing for the selection). Venue-wide lock is forbidden. Map lag → false availability → 409 on hold is OK; false "sold" briefly is false scarcity.
 
-**Payment boundary.** Hold TTL > pay budget; recovery commits if paid (day 49/65). Flash queue only if arrivals exceed ~hundreds/s on the hot event (day 70).
+**Payment boundary.** Hold TTL > pay budget; recovery commits if paid (day 49/65). Flash queue only if arrivals exceed what the event shard can CAS (day 70).
 
-**What staff sounds like.** Conditional multi-seat txn, sweeper vs commit guard, 503 not 409 on leader loss.
+**Idempotency.** Hold key returns the same hold; retries must not grab a second set of seats.
+
+**What staff sounds like.** Conditional multi-seat txn, sweeper vs commit guard, 503 not 409 on leader loss, hold TTL vs pay budget spoken together.
+
+### More probes, with the answer
+
+**"What pages?"** Name the user-visible lag or error metric from Failure — not only CPU. **"What do you refuse?"** Pick one refusal from Trade-offs and say the lie it prevents. **"What is the sensitive assumption?"** The estimate that flips the design if wrong by 10×.
 
 ## Kit artifact
 

@@ -107,6 +107,13 @@ On connect: client sends `after_seq` per active conversation (or a user-level ev
 
 Same `client_msg_id` → same `seq`. Different id → second message. Client must stabilize ids across retry. Server retains idempotency keys **24–72 h**.
 
+### Worked path: send with flaky mobile
+
+1. Client mints `client_msg_id`; POST; timeout.
+2. Retry same id → same seq (idempotency 24–72 h).
+3. 201 already happened on server; push may have dropped → recipient catch-up on reconnect with `after_seq`.
+4. Sender UI shows sent from 201, not from delivered receipt.
+
 ## Diagrams
 
 ```mermaid
@@ -121,7 +128,7 @@ sequenceDiagram
   R-->>L: delivered ack optional
 ```
 
-Caption: "Seq assigned in one place. Push is after commit."
+Caption: "Seq assigned in one place. Push is after commit. If push is before commit, a crash fabricates ghosts."
 
 ```mermaid
 flowchart LR
@@ -130,25 +137,31 @@ flowchart LR
   catch --> hist[(conversation messages)]
 ```
 
-Caption: "Catch-up reads the log; push is not the source of truth."
+Caption: "Catch-up reads the log; push is not the source of truth. Point at after_seq."
 
 ## Failure the user sees
 
-**Leader down for conversation.** Sends 503 for that thread; other conversations fine. Budget election ~30s. Do not dual-write seq without a fence — duplicate seq or forks destroy chat.
+**Leader down for conversation.** Sends 503 for that thread; other conversations fine. Budget election ~30s (~2,100 failed sends if that thread were at a hot 70 msg/s — usually far quieter; still say the window). Do not dual-write seq without a fence — duplicate seq or forks destroy chat. Page on send 503s per conversation partition, not only sitewide error rate.
 
-**Push lost.** Recipient offline-looking until catch-up; sender may see no delivered receipt. Message is not lost if commit succeeded.
+**Push lost.** Recipient looks offline until catch-up; sender may see no delivered receipt. Message is **not** lost if commit succeeded. The product bug is teaching the sender "failed" when the log has the row — UI should show sent, not retry-as-new without the same client_msg_id.
 
-**Duplicate client_msg_id after retention expiry.** Second insert — rare; document retention.
+**Duplicate client_msg_id after retention expiry.** Second insert — rare; document retention (24–72 h). After expiry, a retry becomes a second message; clients must not recycle ids forever.
 
-**Clock skew on clients.** Irrelevant for history order; only seq matters.
+**Clock skew on clients.** Irrelevant for history order; only seq matters. A client that sorts the thread by device `Date.now()` will reorder — history API order is authoritative.
+
+**Multi-device race on send.** Phone and web both send with different client_msg_ids: two messages, correct. Same client_msg_id from one device after retry: one message. Do not key idempotency only on body hash — identical texts are allowed.
 
 ## Trade-offs
 
 **Per-conversation leader vs CRDT merge.** Leader+seq is enough for 1:1. CRDT is for concurrent edits without a leader (day 67). You refuse CRDT for chat bodies here.
 
-**Store receipts on every message vs high-water.** High-water is O(1) per conversation; enough for WhatsApp-style ticks. Per-message receipts explode writes.
+**Store receipts on every message vs high-water.** High-water is O(1) per conversation; enough for WhatsApp-style ticks. Per-message receipts explode writes at 70k msg/s.
 
 **Push-as-truth vs log-as-truth.** Log is truth. Push can drop.
+
+**Name the refusal inside each alternative.** Against a global message seq for the site: you refuse a hotspot that does not define 1:1 history. Against CRDT chat bodies: you refuse concurrent merge complexity you do not need when a leader exists. Against per-message receipt rows: you refuse write amplification on every tick. Against push-as-truth: you refuse silent loss when the gateway drops a frame. Against device clocks as order: you refuse reorder bugs on flaky mobiles.
+
+**10×.** ~230k msg/s average. More conversation partitions, same per-conversation single writer. Hot pairs still one seq space — you scale by conversations, not by sharding one thread's seq.
 
 ## Talking points
 
@@ -156,9 +169,15 @@ Caption: "Catch-up reads the log; push is not the source of truth."
 
 **If they ask about E2E.** "Bodies encrypted under user keys means server fans out ciphertext and cannot read; receipts and seq still server-side. Out unless they insist — then seq and fan-out stay, search dies."
 
+**If they ask what happens when push drops after 201.** "Sender already has seq. Recipient catch-up with after_seq on reconnect. Delivered receipt may never arrive for that hop — lossy on purpose."
+
+**If they ask how multi-device read works.** "Read high-water is per user: phone open marks read for web. Each device keeps its own catch-up cursor for payloads it has locally."
+
+**If they ask about a hot support bot pair.** "About 100 msg/s on one conversation is still one leader. I do not split seq across shards for that thread."
+
 ## Say this in the room
 
-About 23,000 messages a second average, peak near 70,000; each conversation has a single writer that assigns a monotonic seq so order does not depend on device clocks. Send is idempotent on client_msg_id, 201 after the append, then at-least-once push; offline devices catch up with after_seq from the message log, which is the source of truth. Delivered and read are high-water marks per user, not per message row. I refuse a global total order across the product — it buys nothing for 1:1 history and costs a hotspot.
+About 23,000 messages a second average, peak near 70,000; each conversation has a single writer that assigns a monotonic seq so order does not depend on device clocks. Send is idempotent on client_msg_id for 24–72 hours, 201 after the append, then at-least-once push; offline devices catch up with after_seq from the message log, which is the source of truth. Delivered and read are high-water marks per user, not per message row — at this QPS I refuse receipt rows per message. I refuse a global total order across the product — it buys nothing for 1:1 history and costs a hotspot. Leader loss is 503 on that thread for the election window, with a fence so seq cannot fork.
 
 ### Staff depth: at-least-once push, log as truth
 
@@ -168,7 +187,9 @@ Push can drop. Catch-up with `after_seq` is mandatory. Delivered receipts may ju
 
 **Hot pair.** 100 msg/s on one conversation: one partition leader; do not shard the conversation's seq.
 
-**What staff sounds like.** Refusing global order, fencing the conversation leader, and documenting that receipts are lossy.
+**Idempotency retention.** 24–72 h of client_msg_id. After that a retry can double — say it, and make clients mint stable ids for the retry window.
+
+**What staff sounds like.** Refusing global order, fencing the conversation leader, documenting that receipts are lossy, and keeping the log as truth when push lies.
 
 ## Kit artifact
 

@@ -95,6 +95,18 @@ If inventory is another system, search holds a **denormalized** bool/stock bucke
 
 Merchant saves title; search may show old for up to 5 minutes. Admin UI reads primary. Shopper search reads index. Support ticket: check indexer lag metric.
 
+
+### Worked path: merchant save → searchable
+
+1. Merchant UI writes catalog primary; outbox row with `version++`.
+2. Indexer applies upsert if `version > indexed_version`; else ignore.
+3. Shopper query hits search shards; facets from doc fields.
+4. Click product → PDP reads primary (and inventory authority). Search card can be stale; money path is not.
+
+**Support playbook.** Merchant says "I changed the price." Check `indexer_lag_seconds`. If under SLO, wait; if over, page indexer. Do not "fix search" by writing the primary from a search admin tool.
+
+**Schema gate.** New facet fields require a mapping change + reindex plan. Free-form merchant JSON as facets is how clusters die.
+
 ## Diagrams
 
 ```mermaid
@@ -110,17 +122,25 @@ Caption: "Primary is truth. Search is derived. Lag is the gap between them."
 
 ## Failure the user sees
 
-**Indexer down.** Search increasingly stale; page on lag. Shoppers find old prices; checkout revalidates.
+**Indexer down.** Search increasingly stale; page on lag (seconds behind primary) and on dead consumers. Shoppers find old prices; checkout revalidates against catalog/inventory truth. Merchant admin UI must read primary — if support only checks search, they will gaslight the merchant.
 
-**Search cluster red.** 503 on search; category browse from primary optional degraded mode.
+**Search cluster red.** 503 on search; optional degraded browse from primary categories. Do not fail the whole site homepage if only search is sick — isolate.
 
-**Mapping explosion.** Too many dynamic fields; refuse merchant arbitrary attrs as indexed facets without a schema gate.
+**Mapping explosion.** Too many dynamic fields; refuse merchant arbitrary attrs as indexed facets without a schema gate. One bad product type must not map-bomb the cluster.
+
+**Version go-backwards.** CDC delivers an older update after a newer one; indexer must ignore lower versions or you resurrect old prices. Version on the document is mandatory.
+
+**Dual-write without outbox.** App wrote DB then failed before search (or the reverse): silent drift forever. Refuse; outbox/CDC only (day 39).
 
 ## Trade-offs
 
-**Sync index on write vs async.** Sync makes write latency track search cluster — refuse for 500/s catalog with 5 min SLO.
+**Sync index on write vs async.** Sync makes write latency track search cluster — refuse for 500/s catalog with a 5 minute SLO.
 
 **Exact inventory in search.** Refuse as authority; denormalize hint only.
+
+**Name the refusal inside each alternative.** Against LIKE/GROUP BY on the primary for shopper search: you refuse OLTP death under facet aggregation. Against dual-write: you refuse undetectable drift. Against zero-lag search as a promise without making search primary: you refuse a lie. Against high-cardinality SKU facets: you refuse facet explosion. Against search as reservation authority: you refuse oversell theater (day 49/61).
+
+**10× catalog updates.** ~5k/s into the pipeline. Indexer parallelism and shard count; freshness SLO unchanged unless you tighten it on purpose.
 
 ## Talking points
 
@@ -128,17 +148,29 @@ Caption: "Primary is truth. Search is derived. Lag is the gap between them."
 
 **If they ask zero lag.** "Then search is the primary or you accept 2PC. For catalog, minutes are OK; money paths recheck."
 
+**If they ask how facets stay fast.** "Facet fields on the documents / docvalues in the engine. Not a SQL DISTINCT on 50 million rows at query time."
+
+**If they ask what the shopper sees at 4 minutes of lag.** "Old title/price in search cards. PDP and checkout read truth. I state the five-minute SLO up front."
+
+**If they ask about deleting a product.** "Primary delete + outbox; indexer removes the doc. Search may show a ghost until lag clears — click-through 404s from primary."
+
 ## Say this in the room
 
-Product search is an inverted-index cluster fed by CDC from the catalog primary, with facets stored on the documents so filters do not scan the catalog database. Writes commit to the primary first; the index can lag up to about five minutes, and I page on that lag. Availability in search is a hint — reservation still happens on the inventory authority. I refuse dual-writing the app to database and search without an outbox.
+Product search is an inverted-index cluster fed by CDC from the catalog primary, with facets stored on the documents so filters do not scan the catalog database. Writes commit to the primary first; the index can lag up to about five minutes, and I page on that lag. Availability in search is a hint — reservation still happens on the inventory authority. I refuse dual-writing the app to database and search without an outbox, and I refuse merchant-defined arbitrary facet fields without a schema gate. Relevance is statistical term match, not a neural model in this interview.
 
 ### Staff depth: search is not inventory authority
 
 Denormalized `in_stock` in the index can be wrong for minutes. Checkout re-reserves (day 49/61). Merchant admin UI reads primary for the price they just saved; shoppers may see old price until indexer lag clears — support reads the lag metric.
 
-**Dual-write refuse.** Outbox/CDC only (day 39).
+**Dual-write refuse.** Outbox/CDC only (day 39). Version on docs so late CDC events cannot go backwards.
 
-**What staff sounds like.** Freshness SLO spoken before relevance theater; facets from the engine, not a primary GROUP BY.
+**Facet cardinality.** Brand/category/price buckets yes; per-SKU facets no.
+
+**What staff sounds like.** Freshness SLO spoken before relevance theater; facets from the engine, not a primary GROUP BY; money paths recheck truth.
+
+### More probes, with the answer
+
+**"What pages?"** Name the user-visible lag or error metric from Failure — not only CPU. **"What do you refuse?"** Pick one refusal from Trade-offs and say the lie it prevents. **"What is the sensitive assumption?"** The estimate that flips the design if wrong by 10×.
 
 ## Kit artifact
 

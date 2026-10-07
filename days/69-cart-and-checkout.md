@@ -86,6 +86,10 @@ Same checkout key returns same order. New key = new attempt (may 409 on stock).
 
 Show "price changed" if catalog moved before checkout; do not silently charge old if policy requires confirm.
 
+### Staff arithmetic: saga order
+
+Checkout is a saga (day 41): snapshot price → hold stock → authorize payment → commit order. Wrong order creates money without stock or stock without money. Idempotency key on checkout intent makes retries safe. Cart is soft state; order is the durable purchase. Flash traffic is day 70 — today is correctness under retries and partial failure. Price snapshot freezes what the user saw; post-checkout catalog changes must not rewrite the order.
+
 ## Diagrams
 
 ```mermaid
@@ -107,31 +111,53 @@ Caption: "One key, one order. Compensations on failure paths."
 
 ## Failure the user sees
 
-**Double submit.** Same key; one charge.
+**Pay success, stock fail.** Compensate: void/refund payment; do not create shipped order. User sees payment reversed + apology.
 
-**Paid, stock lost race.** Refund or fail order with support path — never ship without stock commit.
+**Stock hold, pay unknown.** Leave hold until pay terminal; then commit or release. Do not release stock while pay may still capture.
 
-**Inventory 503.** Checkout 503; no charge.
+**Double checkout click.** Same idempotency key → same order id. New key → risk double order — client must stabilize key.
+
+**Stale cart price.** Item was $10 in cart, now $12; checkout snapshots and may revalidate — say policy (fail if drift > ε, or charge snapshot with disclosure).
+
+**Hold expires mid-pay.** Pay may succeed; stock gone → refund path. Hold TTL > pay budget (day 61/65).
 
 ## Trade-offs
 
-**Auth-on-checkout vs charge-on-checkout.** Auth holds buyer funds; better for ship delays.
+**Sync checkout vs async order.** Sync until pay+commit for small carts; async for heavy risk with clear "processing" UI.
 
-**Hard snap vs reprice.** Snap is simpler UX at commit; reprice is fairer when markets move.
+**Cart in cookie vs server.** Server cart for logged-in; either way checkout creates server order.
+
+**Name the refusal inside each alternative.** Against pay before stock hold: you refuse charging for unreservable goods. Against new idempotency key on retry: you refuse double orders. Against mutating order prices after commit from catalog: you refuse rewriting receipts. Against releasing hold while pay unknown: you refuse oversell when capture lands.
+
+**10× checkout QPS.** More order shards; same saga. Day 70 if the cliff is fairness/admission.
 
 ## Talking points
 
-**If they charge then reserve.** "You steal money when stock 409s. Reserve then pay, or pay then guarantee recovery."
+**If they charge then reserve.** "Compensation hell and angry charged users. Hold first or atomic with clear order."
+
+**If they ask saga vs 2PC.** "Saga with compensations across stock and payment services — day 41. 2PC across provider is fantasy."
+
+**If they ask price changes.** "Snapshot at checkout; policy for drift. Order row immutable on price."
+
+**If they ask abandoned carts.** "Holds expire; carts linger. Not orders."
+
+**If they ask what pages.** "Checkout compensation rate, pay-unknown aged intents, hold expiry during pay."
 
 ## Say this in the room
 
-Checkout is a saga: snapshot line prices into an order, reserve inventory, authorize payment, then commit the reservation — with an idempotency key so double-click cannot create two orders or two charges. Failures compensate: payment fail releases the hold; payment success with a lost commit is recovered or refunded, never ignored. Price changes in the cart before checkout either reconfirm or snap at checkout by policy, but the charged amount is always the order snapshot. Flash-sale stampedes are day 70; today arrival fits conditional reserves.
+Checkout creates an order intent with an idempotency key, snapshots prices, holds stock, then authorizes payment — and compensates in reverse if a later step fails. A double click with the same key returns the same order; a new key is how you double-charge. I will not release a stock hold while payment is still unknown, and I will not rewrite order prices from a later catalog change. Cart is soft; the order row is the receipt. Flash admission is day 70 if we need it.
 
 ### Staff depth: saga order and compensations
 
-Reserve → pay → commit (or auth-on-place for physical). Pay success + reserve commit fail → recover or refund — never ship without stock. Checkout idempotency key returns the same order. Price snapshot on the order is what you charged.
+Hold → pay → commit. Fail pay → release hold. Fail after pay → refund + release. Idempotent intent.
 
-**What staff sounds like.** Step order, compensations, keys; flash sale deferred to day 70.
+**TTL.** Hold outlives pay budget.
+
+**What staff sounds like.** Saga steps named in order; compensation paths; idempotent checkout key.
+
+### More probes, with the answer
+
+**"What pages?"** Name the user-visible lag or error metric from Failure — not only CPU. **"What do you refuse?"** Pick one refusal from Trade-offs and say the lie it prevents. **"What is the sensitive assumption?"** The estimate that flips the design if wrong by 10×.
 
 ## Kit artifact
 

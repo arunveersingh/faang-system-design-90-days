@@ -83,6 +83,21 @@ Relabel / drop rules at gateway for known bad patterns (`user_id` on metric labe
 
 Same timestamp+series: last write wins or first — say it. Out-of-order window bounded (e.g. 1 h); older rejected or sent to repair path.
 
+### Staff arithmetic: points are cheap, series are not
+
+500k points/s × ~20 bytes compressed ≈ **10 MB/s** — networking is not the story. Active series metadata is: if a tenant invents `user_id` as a label, series count explodes toward hundreds of millions and the inverted index / catalog RAM dies. Per-tenant budget (100k–1M active series) enforced on **new** series at the gateway; existing series keep accepting points. Reject with a clear error (429/400 + metric) — silent drop hides the bug for weeks. Out-of-order window (e.g. 1 h) stated; older samples rejected or repaired offline.
+
+
+### Worked path: point with a new label combo
+
+1. Gateway authenticates tenant; parses series key.
+2. If series known → forward to distributor.
+3. If new → check active-series budget; over → 429 with `cardinality_exceeded`; under → create + forward.
+4. Ingester appends to WAL/quorum; ack.
+5. Relabel config may drop `user_id` before step 2 so the series never exists.
+
+**Whale.** Tenant-local limit trips first. Global series emergency limit protects the cluster if many tenants spike together.
+
 ## Diagrams
 
 ```mermaid
@@ -99,9 +114,15 @@ Caption: "Limits before fan-out. New series are the scarce resource."
 
 ## Failure the user sees
 
-**Tenant over card.** New series fail; dashboards miss new pods until they drop labels. Old series keep writing.
+**Tenant over card.** New series fail; dashboards miss new pods until they drop labels. Old series keep writing — the tenant sees a **partial** outage of discovery, not a total write black hole. Page the tenant; do not page the whole site as "ingest down."
 
-**Ingester down.** Quorum write may 503; agents retry. Gaps possible — say scrape retry.
+**Ingester down.** Quorum write may 503; agents retry. Gaps possible — scrape/retry semantics on the agent. Durability bar (WAL quorum) stated on ack.
+
+**Whale tenant.** One of 5,000 tenants tries 50M series overnight — gateway fuse trips; other tenants unaffected if limits are per-tenant. Global fuse also exists as a last resort.
+
+**Silent drop misconfiguration.** Cardinality "fixed" by dropping points — customer thinks metrics work; weeks later cardinality still wrong. Prefer explicit reject.
+
+**Out-of-order flood.** Mis-set clocks write ancient samples; bounded window rejects them so a bad agent cannot rewrite history forever.
 
 ## Trade-offs
 
@@ -109,13 +130,25 @@ Caption: "Limits before fan-out. New series are the scarce resource."
 
 **Reject vs silent drop.** Reject — silent drop hides cardinality bugs.
 
+**Name the refusal inside each alternative.** Against unlimited label combos: you refuse catalog RAM death. Against silent drop as the default fuse: you refuse hiding the customer's bug. Against treating point QPS as the scarce resource: you refuse missing the real cliff. Against one shared budget for all tenants: you refuse a noisy neighbor (day 22). Against unbounded out-of-order: you refuse rewrite storms.
+
+**10× points.** ~5M/s — more distributors/ingesters; **same** card budgets. Cardinality fuse does not loosen because bytes grew.
+
 ## Talking points
 
 **If they index every label forever.** "That is how tenants melt you. Budgets and gateway drop rules."
 
+**If they ask what the scarce resource is.** "Active series, not points. 10 MB/s is easy; 1e9 series metadata is not."
+
+**If they ask how a new pod appears when over budget.** "It does not until they drop labels or raise the limit. Existing series still write."
+
+**If they ask about ack durability.** "After WAL quorum (or your stated bar). Agents retry on 503 — at-least-once; duplicates last-write-wins for the same timestamp."
+
+**If they ask about query.** "Day 64. Today I keep the firehose from becoming an unbounded index."
+
 ## Say this in the room
 
-Ingest is a buffered, hash-sharded write path into a time-series store, but the scarce resource is active series — not raw points. Each tenant has a hard cardinality budget enforced at the gateway on new series creation so one customer cannot invent infinite label combos overnight. Existing series still accept points; over-budget new series get a clear error. Duplicates and limited out-of-order windows have an explicit rule. Query and alerts are tomorrow; today I keep the firehose from becoming an unbounded index.
+Ingest is a buffered, hash-sharded write path into a time-series store, but the scarce resource is active series — not raw points. Half a million points a second is about 10 MB/s compressed; a billion series of metadata is a different planet. Each tenant has a hard cardinality budget enforced at the gateway on new series creation so one customer cannot invent infinite label combos overnight. Existing series still accept points; over-budget new series get a clear error, not a silent drop. Duplicates and a bounded out-of-order window have an explicit rule. Query and alerts are tomorrow; today I keep the firehose from becoming an unbounded index.
 
 ### Staff depth: series are the scarce resource
 
@@ -123,7 +156,13 @@ Ingest is a buffered, hash-sharded write path into a time-series store, but the 
 
 **Drop rules.** Ban `user_id` as a metric label at ingest.
 
-**What staff sounds like.** Cardinality fuse before naming TSDB brands; out-of-order window stated.
+**Noisy neighbor.** Per-tenant limits; global emergency fuse. Whale cannot take the cluster alone.
+
+**What staff sounds like.** Cardinality fuse before naming TSDB brands; out-of-order window stated; reject not silent drop.
+
+### More probes, with the answer
+
+**"What pages?"** Name the user-visible lag or error metric from Failure — not only CPU. **"What do you refuse?"** Pick one refusal from Trade-offs and say the lie it prevents. **"What is the sensitive assumption?"** The estimate that flips the design if wrong by 10×.
 
 ## Kit artifact
 

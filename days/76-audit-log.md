@@ -87,6 +87,10 @@ Do not claim "blockchain-grade" if you only have Postgres.
 
 Lifecycle policies; legal hold flag skips delete. Deletes of audit: highly restricted, dual control.
 
+### Staff arithmetic: append-only and honest tamper bounds
+
+Audit is an **append-only** log of security-relevant actions, fed by outbox from mutating services (day 39) — dual-write from app to primary and audit without ordering drifts. Query by actor, resource, time. Retention years. Tamper evidence: hash chain or WORM storage — say the bound ("detects rewrite after append," not "NSA-proof"). High-cardinality actor spam gets rate limits; the log must not be a DoS path. Hot read path of the product must not sync-wait on audit write — outbox.
+
 ## Diagrams
 
 ```mermaid
@@ -103,29 +107,51 @@ Caption: "Mutation and audit intent share fate. Store is append-only."
 
 ## Failure the user sees
 
-**Audit down, mutations blocked.** Availability hit; integrity preserved — say the choice.
+**Missing audit rows after an incident.** Dual-write lost or outbox stalled — compliance failure. Page on outbox lag for audit topics.
 
-**Async loss without outbox.** Silent gap — refuse.
+**Tampered history.** Without WORM/hash chain, a privileged actor rewrites. Speak the detection bound.
+
+**Audit write on request path.** Latency and outage couple to audit store — refuse sync mandatory on every click; outbox.
+
+**PII in clear forever.** Retention + redaction policy; else you built a breach magnet.
+
+**Query without indexes.** Investigations timeout — plan access patterns (actor, resource_id, time).
 
 ## Trade-offs
 
-**Sync vs async emit.** Outbox async from request thread but durable with mutation.
+**Hash chain vs WORM bucket.** Either; name what attacks you stop.
 
-**WORM cost.** Worth it for high-risk; overkill for every button click.
+**Sync vs async audit.** Async via outbox; accept seconds of lag; sync only for rare ultra-sensitive if product demands.
+
+**Name the refusal inside each alternative.** Against dual-write without outbox: you refuse silent loss. Against mutable audit table UPDATEs: you refuse non-evidence. Against sync audit on every UX read: you refuse availability coupling. Against "we cannot detect tampering": you refuse claiming compliance without a bound. Against infinite PII retention without policy: you refuse a liability pile.
+
+**10× mutations.** Outbox partitions; audit store append scale. Query indexes stay.
 
 ## Talking points
 
-**If they UPDATE audit rows.** "That is not an audit log."
+**If they UPDATE audit rows.** "Append only. Corrections are new rows."
+
+**If they sync-write audit in the request.** "Outbox. Seconds of lag beat coupling outages."
+
+**If they ask tamper proof.** "WORM or hash chain — detects rewrite after append. Not magical."
+
+**If they ask what to log.** "Authz denials, mutations, admin actions — not every page view unless required."
+
+**If they ask what pages.** "Audit outbox lag, write failures, query p99 for investigations."
 
 ## Say this in the room
 
-Audit events are intended in the same commit as the mutation via an outbox, then appended to a store with no update or delete API for ordinary roles. Queries use actor and resource time indexes; cold retention goes to lifecycle-locked storage. My tamper claim is honest: this stops an app-level attacker from rewriting history; a storage admin requires WORM retention lock or external notarization of hash tips, which I name only if we bought it. Gaps page via outbox age; for the highest-risk actions we may fail closed if audit cannot spool.
+An audit log is append-only evidence fed by outbox from mutating services so we do not dual-write ourselves into drift. Investigators query by actor, resource, and time on indexes we planned. Tamper evidence is a hash chain or WORM store with an honest bound — detects rewrite after append, not mythology. Audit must not sit synchronously on every user request path. PII retention and redaction are part of the design, not an appendix after a breach.
 
-### Staff depth: honest tamper claims
+### Staff depth: append-only store with real controls
 
-Outbox with mutation; append-only IAM. WORM/notarize only if bought — do not claim blockchain against cloud root otherwise. Fail closed vs spool for highest-risk actions — say which.
+Outbox from mutations. Honest tamper bound. Async by default.
 
-**What staff sounds like.** Threat model first; mechanism second; no fairy tales.
+**What staff sounds like.** Refuse mutable audit; outbox lag paged; tamper bound spoken without theater.
+
+### More probes, with the answer
+
+**"What pages?"** Name the user-visible lag or error metric from Failure — not only CPU. **"What do you refuse?"** Pick one refusal from Trade-offs and say the lie it prevents. **"What is the sensitive assumption?"** The estimate that flips the design if wrong by 10×.
 
 ## Kit artifact
 

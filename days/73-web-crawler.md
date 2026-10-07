@@ -89,6 +89,10 @@ Cap path depth, query params, calendar patterns; cloaking detection thin.
 
 Adaptive revisit: change often → hours; static → weeks. Priority queue by `next_fetch_at`.
 
+### Staff arithmetic: politeness is capacity
+
+Crawl QPS is bounded **per host**, not globally — one huge site would starve the frontier if you only have a global QPS. Frontier is host-aware queues; politeness delay from robots/crawl-delay; budget per domain. Canonicalization + content hash dedupe stop the same page via many URLs from exploding storage. Recrawl priority ≠ BFS forever; freshness budgets matter. 100M URLs × politeness is a scheduling problem, not a wget loop.
+
 ## Diagrams
 
 ```mermaid
@@ -105,31 +109,51 @@ Caption: "Scheduler is host-aware. Workers never bypass the bucket."
 
 ## Failure the user sees
 
-**One host melted.** Bug in budget → legal/reputation; page on per-host send rate.
+**Banned by a major host.** Too aggressive; missing that site's pages. Politeness and shared IP reputation matter.
 
-**Frontier deadlock.** All budgets empty; idle capacity — scheduler bug.
+**Duplicate near-identical pages.** Storage and ranking pollution — canonical + hash dedupe.
 
-**robots stale.** Fetch disallowed path — refresh robots often enough; fail closed on fetch error of robots if policy says.
+**Frontier explosion.** Redirect/calendar traps; budget per host and max depth/URL patterns.
+
+**Stale corpus.** Recrawl never revisits important hosts — freshness policy missing.
+
+**robots.txt ignored.** Legal/product failure; cache robots with TTL and obey.
 
 ## Trade-offs
 
-**Per-host vs per-IP budget.** Shared hosting complicates; start per-host.
+**BFS vs prioritized freshness.** Priority by importance/change rate for production; BFS for teaching.
 
-**Headless render.** Expensive; only for allow-listed needs.
+**Name the refusal inside each alternative.** Against global-only rate limit: you refuse host bans and unfairness. Against storing every URL variant: you refuse dedupe death. Against ignoring robots: you refuse policy violation. Against unbounded JS-rendered crawl as default: you refuse a second browser farm unless required. Against one queue for all hosts: you refuse head-of-line blocking by one slow host.
+
+**10× URLs.** More frontier workers; per-host caps unchanged.
 
 ## Talking points
 
-**If they use one global Kafka without host caps.** "Workers will synchronize on popular hosts and melt them."
+**If they use one global QPS.** "Per-host politeness or you get banned and you starve small hosts."
+
+**If they ask dedupe.** "Canonical URL + content hash. Redirect chains resolve before enqueue."
+
+**If they ask JS rendering.** "Optional expensive path for allow-listed hosts; not default."
+
+**If they ask what pages.** "Per-host error/ban rate, frontier size growth, robots fetch failures."
+
+**If they ask seeding.** "Seed set + sitemaps; not a single homepage forever."
 
 ## Say this in the room
 
-The crawler is a host-aware frontier: each host has a queue and a token bucket so global capacity cannot concentrate on one origin. URLs are canonicalized for dedupe; content hashes skip unchanged bodies; revisit schedules adapt to change rate. robots.txt and crawl-delay gate fetches, with backoff on 429/5xx. Infinite spaces are capped by depth and pattern rules. Fetchers only receive URLs the scheduler admits — they do not self-serve popular hosts.
+A crawler is a host-aware frontier with per-host politeness budgets, not a global wget loop — one huge domain must not starve the rest or get us banned. We canonicalize and content-hash to dedupe, obey robots.txt with a cached copy, and recrawl by freshness priority rather than blind BFS forever. Redirect and calendar traps get depth/budget caps. Rendering JS is an allow-listed expensive path, not the default.
 
-### Staff depth: centralized host budgets
+### Staff depth: host-aware frontier
 
-Many fetchers + one popular host without a token bucket = legal letter. robots + crawl-delay + 429 backoff. Canonical dedupe and trap caps. Adaptive revisit — not one global interval.
+Per-host queues + crawl-delay. Global QPS alone is insufficient.
 
-**What staff sounds like.** Politeness as scheduler law; workers never self-serve hot hosts.
+**Dedupe.** Canonical + hash.
+
+**What staff sounds like.** Politeness as capacity; refuse trap explosion; robots obeyed.
+
+### More probes, with the answer
+
+**"What pages?"** Name the user-visible lag or error metric from Failure — not only CPU. **"What do you refuse?"** Pick one refusal from Trade-offs and say the lie it prevents. **"What is the sensitive assumption?"** The estimate that flips the design if wrong by 10×.
 
 ## Kit artifact
 

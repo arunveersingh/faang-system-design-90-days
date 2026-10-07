@@ -99,6 +99,19 @@ Inbox works. Badge counts from inbox unread. Push delayed. Page on provider erro
 
 Emit path must not create 50M jobs synchronously. Use recipient query + partitioned workers, or "pull notification on feed open" for low-priority social types. Cap push for some types to online users only.
 
+
+### Worked path: like → inbox → push
+
+1. Like service commits like + outbox row; returns 201 to the liker (~ms).
+2. Notify consumer loads prefs (cache). Quiet hours → inbox only.
+3. Upsert inbox on `(user, collapse_key=like:post:P)` — count++, `created_at=now`.
+4. Enqueue push job with device tokens; worker calls APNs with provider collapse_id when available.
+5. APNs 503 → retry with jitter; inbox unchanged. Invalid token → delete token row.
+
+**Security vs marketing.** Prefs unknown: still push "new login"; do not push "sale ends tonight." That split is the staff answer when they ask "fail open or closed."
+
+**Celebrity.** Recipient set from follower query in partitions (day 52). Low-priority social may skip push and only upsert inbox lazily on app open — say when you choose that degrade.
+
 ## Diagrams
 
 ```mermaid
@@ -120,11 +133,15 @@ Caption: "Inbox durable before push. Provider is best-effort."
 
 ## Failure the user sees
 
-**APNs/FCM down.** In-app inbox complete; no banners until recovery. Users who only look at the lock screen miss updates — product risk you name, not a silent data loss.
+**APNs/FCM down.** In-app inbox complete; no banners until recovery. Users who only look at the lock screen miss updates — product risk you name, not a silent data loss. Page on push lag (oldest unpushed job age) and provider error rate. Do **not** page on "like failed" — the like already 201'd.
 
-**Duplicate push.** Collapse keys and provider collapse; user may still see two banners if clients race — acceptable bound.
+**Duplicate push.** Collapse keys and provider collapse_id; user may still see two banners if two devices race — acceptable bound. Inbox stays one row per collapse_key.
 
-**Prefs cache stale.** User disabled push; still gets one; bound TTL of prefs cache (30–60 s). Prefer fail closed for marketing types, fail open for security ("login from new device").
+**Prefs cache stale.** User disabled push; still gets one within prefs TTL (30–60 s). Prefer fail **closed** for marketing types, fail **open** for security ("login from new device"). Say the split.
+
+**Celebrity emit inline.** A worker that loops 50M provider calls on one post will not finish and will block the queue for everyone else — same bomb as day 52. Partition emit or degrade that type to inbox-on-open; cap push to currently-online if product allows.
+
+**Collapse key wrong.** Fifty likes become fifty rows; inbox melts and UX is spam. The key is part of the product contract (`like:post:123`), not an afterthought.
 
 ## Trade-offs
 
@@ -134,15 +151,27 @@ Caption: "Inbox durable before push. Provider is best-effort."
 
 **Email channel.** Separate worker, same inbox flag `emailed`; never block on SMTP.
 
+**Name the refusal inside each alternative.** Against push on the event 201 path: you refuse APNs as a dependency of a like. Against exact global order of all notification types: you refuse a sitewide seq that buys nothing per-user inbox needs. Against 50M inline push jobs: you refuse day 52's bomb. Against one prefs policy for security and marketing: you refuse failing closed on "new login" or failing open on promos. Against SMS as primary: you refuse a carrier path as the durability story.
+
+**10× events.** ~200k inbox writes/s peak. Shard inbox by user_id; collapse still per user. Push workers scale horizontally; provider quotas become the ceiling — shed low-priority types first.
+
 ## Talking points
 
 **Hand-waving.** "We send a push." Where is the durable record, collapse key, and provider-down behavior?
 
 **If they ask about 50M fan-out.** "Same gate as celebrity feed. Partitioned emit or degrade to inbox-on-read for that type."
 
+**If they ask whether the like waits on push.** "No. Outbox after the like commit. 201 is the like. Push is best-effort toward the inbox row."
+
+**If they ask what pages.** "Oldest unpushed age and provider 5xx. Not like error rate."
+
+**If they ask about quiet hours.** "Prefs gate the push job; inbox still upserts so the morning open is complete."
+
+**If they ask about multi-device tokens.** "Registry of tokens per user; invalid token on provider response removes that device only."
+
 ## Say this in the room
 
-Notifications are an inbox upsert first — collapse by key so fifty likes become one row — and push is an async best-effort pointer to that row. The product event's 201 never waits on APNs. If the provider is dead, the inbox is still correct and I page on push lag, not on user-visible event failure. Preferences and quiet hours gate the push job. Celebrity-scale emits use partitioned workers or degrade; they do not loop fifty million provider calls inline.
+Notifications are an inbox upsert first — collapse by key so fifty likes become one row with a bumped count and time — and push is an async best-effort pointer to that row. At about 20,000 inbox writes a second peak after preferences, that path is the product. The event's 201 never waits on APNs. If the provider is dead, the inbox is still correct and I page on push lag, not on user-visible event failure. Preferences and quiet hours gate the push job; security types fail open when prefs are unknown, marketing fail closed. Celebrity-scale emits use partitioned workers or degrade; they do not loop fifty million provider calls inline.
 
 ### Staff depth: collapse keys and provider death
 
@@ -150,9 +179,15 @@ Fifty likes → one inbox row with bumping count/time. Push may still double-ban
 
 **Celebrity notify.** Do not enqueue 50M push jobs inline (day 52). Partition emit or degrade low-priority social to inbox-on-open.
 
-**Prefs cache.** Security notifications fail open (still push); marketing fail closed when prefs unknown.
+**Prefs cache.** Security notifications fail open (still push); marketing fail closed when prefs unknown. TTL 30–60 s is the bound on "I turned it off and still got one."
 
-**What staff sounds like.** Inbox-first, event 201 never waits on APNs, page on push lag not on like failure.
+**Retention math.** 500M/day × 300 bytes × 30 days ≈ 4.5 TB order — size the table and the trim job; unread older than 30 days drops.
+
+**What staff sounds like.** Inbox-first, event 201 never waits on APNs, page on push lag not on like failure, collapse key named before the provider brand.
+
+### More probes, with the answer
+
+**"What pages?"** Name the user-visible lag or error metric from Failure — not only CPU. **"What do you refuse?"** Pick one refusal from Trade-offs and say the lie it prevents. **"What is the sensitive assumption?"** The estimate that flips the design if wrong by 10×.
 
 ## Kit artifact
 

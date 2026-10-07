@@ -85,6 +85,10 @@ Auto-repair only when evidence is unambiguous (PSP success id present, amount eq
 
 Every correction cites recon_run_id and PSP report line. Day 76 will thank you.
 
+### Staff arithmetic: unmatched money is the product
+
+Provider settlement files may lag **T+1**. Your ledger shows captures the provider has not settled yet — normal. The bug is **provider has money you have no ledger row for**, or **ledger row with no provider match past the lag SLO**. Recon job matches on idempotency keys / provider refs; unmatched over SLO → ticket, not a silent `UPDATE amount`. Repair is **append correction entries** (day 29 style honesty), never rewrite history. Volume: tens of thousands of rows/day is a batch; correctness is the interview.
+
 ## Diagrams
 
 ```mermaid
@@ -100,29 +104,53 @@ Caption: "Find, then append. Do not rewrite the past."
 
 ## Failure the user sees
 
-**Silent in-place edit.** Auditors lose the trail — refuse.
+**Unmatched provider capture.** Customer charged; your order still `pending`. Support sees recon ticket; repair appends ledger capture tied to provider id; order advances. Do not "fix" by editing the old row's amount in place.
 
-**Auto-repair bug.** Wrong correction — need reverse correction, not delete.
+**Unmatched ledger capture.** You think you charged; provider has nothing — likely unknown timeout that later declined. Repair voids/refunds path; customer must not be shipped.
 
-**Recon lag 3 days.** Finance blind; page on age of last successful recon.
+**File late.** Recon lag extends; do not auto-repair inside the normal lag window. Page when lag >> SLA.
+
+**Wrong match on ambiguous keys.** Two payments same amount same minute — match must use unique provider references, not amount+time alone.
+
+**Automated repair too eager.** Auto-correct only with high-confidence keys; else human queue. Money bugs hate confidence.
 
 ## Trade-offs
 
-**Realtime vs batch recon.** Batch is enough for settlement; streaming helps unknown states faster (day 65 recovery).
+**Auto-repair vs human queue.** Auto for exact key matches; human for amount-only fuzzy.
+
+**Rewrite vs append.** Always append corrections.
+
+**Name the refusal inside each alternative.** Against silent UPDATE of historical ledger rows: you refuse an unauditable books. Against matching on amount+time only: you refuse mis-attribution. Against ignoring T+1 lag as "breakage": you refuse false incidents. Against auto-repair of fuzzy matches: you refuse automated theft/duplication.
+
+**10× payment volume.** Same job, more partitions of the recon batch; rules unchanged.
 
 ## Talking points
 
-**If they UPDATE balances.** "That is not reconciliation. That is destroying evidence."
+**If they UPDATE the ledger in place.** "Append a correction. History is evidence."
+
+**If they match on amount alone.** "Collision. Use provider reference / idempotency key."
+
+**If they ask how fast recon runs.** "After settlement file arrival; SLO hours not milliseconds. Online path is day 65."
+
+**If they ask who gets paged.** "Unmatched past lag SLO; repair failure rate; not every T+1 pending."
+
+**If they ask about chargebacks.** "Separate dispute flow appending ledger entries; out unless they insist."
 
 ## Say this in the room
 
-Reconciliation joins provider reports to ledger entries by provider charge id and classifies orphans and amount mismatches. Repairs are new ledger correction entries that reference the originals and the recon evidence — never an in-place edit of history. Safe, unambiguous cases may auto-repair; everything else hits a human exception queue. I page on recon lag and on exception rate spikes, not on the happy matched majority.
+Reconciliation is a batch match between provider settlement and our append-only ledger keyed by provider references and idempotency keys — not amount-and-time guesses. Normal T+1 lag is not a break; unmatched past the lag SLO is a ticket. Repairs append correction entries so history stays evidence; I refuse silent UPDATEs of past rows. High-confidence auto-repair only; fuzzy cases go to humans. Day 65 made unknown a state; today closes the money we could not see at request time.
 
 ### Staff depth: correction entries are the repair
 
-Amount mismatch → append delta with evidence pointers. UPDATE of old amounts destroys the audit trail. Auto-repair only unambiguous orphans; else human queue. Page on recon lag and exception rate.
+Debit/credit corrections reference the original intent id and provider id. Balances are projections over the log. Auditors read the log; they do not trust a mutable balance column.
 
-**What staff sounds like.** Match classes named; append-only; threat of silent rewrite refused.
+**Lag window.** Inside settlement lag: pending match OK. Outside: incident.
+
+**What staff sounds like.** Append-only repairs, unique match keys, lag SLO vs true unmatched, refuse fuzzy auto-repair.
+
+### More probes, with the answer
+
+**"What pages?"** Name the user-visible lag or error metric from Failure — not only CPU. **"What do you refuse?"** Pick one refusal from Trade-offs and say the lie it prevents. **"What is the sensitive assumption?"** The estimate that flips the design if wrong by 10×.
 
 ## Kit artifact
 
