@@ -28,7 +28,8 @@ Not a new-grad course. Not an AI or ML course. The 90 days are distributed syste
 | 8–28 | Written. Phase 2, one box at a time on that pastebin. Day 28 is a different mock. |
 | 29–49 | Written. Phase 3, guarantees, keys, and the failure you accept. Day 49 is a different mock. |
 | 50–77 | Written. Phase 4, product-shaped systems. Days 63 and 77 are different mocks.
-| 78–90 | Assigned in the curriculum. Not written yet. |
+| 78–84 | Written. Phase 5, failure and senior signal. Day 84 is a dispatch mock with a late failure.
+| 85–90 | Assigned in the curriculum. Not written yet. |
 
 Phase 1 is the spine. Phase 2 adds a box only when that pastebin misses a number or a fault you already stated. Do not skip ahead to "look distributed."
 
@@ -49,7 +50,7 @@ Students should use the book site, not a local checkout.
 To change the course: clone this repository, branch from `main`, and open a pull request. Lesson pages live in `days/`. The site is Docsify at the repository root (`index.html`, `_sidebar.md`, `.nojekyll`). GitHub Pages should deploy from branch `main` and folder `/` (root), not `/docs`.
 
 ```
-days/            one file per day; Phases 1–4 are days 01–77
+days/            one file per day; Phases 1–5 are days 01–84
 prompts/         problem bank (folder name stays `prompts/`; pastebin is day 7; image upload is day 28; warehouse inventory is day 49; job scheduler is day 63; email inbox is day 77)
 design-log/      template only; real notes stay private and are not pushed
 stencils/        the six diagram types, blank

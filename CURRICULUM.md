@@ -1,10 +1,10 @@
 # Curriculum
 
-> **This is the map, not today's lesson.** Days 1–77 are written. Start at [Day 1](days/01-what-the-interview-is-grading.md). Days 78–90 are titles until a page exists.
+> **This is the map, not today's lesson.** Days 1–84 are written. Start at [Day 1](days/01-what-the-interview-is-grading.md). Days 85–90 are titles until a page exists.
 
 Interview-depth system design for senior and staff loops. One day, one sitting. Pure distributed systems: no AI or ML lessons.
 
-This file is the 90-day assignment list, adapted from the course topic list for this repo. **Phase 1 (days 1–7), Phase 2 (days 8–28), Phase 3 (days 29–49), and Phase 4 (days 50–77) are written** under `days/`. Days 78–90 are assigned below and are not in the repo yet. Do not treat a title as a lesson until a page exists.
+This file is the 90-day assignment list, adapted from the course topic list for this repo. **Phase 1 (days 1–7), Phase 2 (days 8–28), Phase 3 (days 29–49), Phase 4 (days 50–77), and Phase 5 (days 78–84) are written** under `days/`. Days 85–90 are assigned below and are not in the repo yet. Do not treat a title as a lesson until a page exists.
 
 Problem pages under [`prompts/`](prompts/README.md) are the problem bank. The folder is still named `prompts/`. If a problem file is updated, **the problem file wins** over a title here. Read the problem page on this site before a mock.
 
@@ -133,20 +133,19 @@ One product a day, or a variant whose failure mode is new. Inventory on day 49, 
 
 ## Phase 5 — Failure and senior signal (Days 78–84)
 
-**Coming. Not written.** These rows are titles only. They are not links, so there is no empty page to open.
-
+**Written.** Open each day under `days/` in order. Day 84 is a closed-book mock with a late failure.
 
 Staff credit is the failure you can operate, pay for, and migrate. Day 84 is a product mock with a scripted outage, not a repeat of these lectures.
 
 | Day | Title | Type | Intent |
 |---|---|---|---|
-| 78 | SLOs and the miss a user sees | Lesson | Facing a vague reliability ask, leave able to state an SLO and the user-visible miss when it is breached. |
-| 79 | Degradation under partial failure | Lesson | Facing a sick dependency rather than a total outage, leave able to pick a degraded mode and what you refuse to drop. |
-| 80 | Losing a region | Lesson | Facing a region that is already dark, leave able to state RPO, RTO, and which side is authoritative for new writes. |
-| 81 | Observability that pages a human | Lesson | Facing an on-call question, leave able to name the dashboard, the page, and the first runbook step for a failure you designed. |
-| 82 | Cost as a spoken trade-off | Lesson | Facing a design that is correct and expensive, leave able to cut replicas, egress, or retention and say the user-visible risk. |
-| 83 | Migration while live | Lesson | Facing a system that must change shape, leave able to migrate with a dual path and a rollback while writes continue. |
-| 84 | Mock: delivery dispatch with a late failure | Mock | Facing a dispatch problem that is not an SLO or migration lecture, leave able to design matching and, near minute 25, lose a region or the location store. |
+| 78 | [SLOs and the miss a user sees](days/78-slos-and-the-miss-a-user-sees.md) | Lesson | Facing a vague reliability ask, leave able to state an SLO and the user-visible miss when it is breached. |
+| 79 | [Degradation under partial failure](days/79-degradation-under-partial-failure.md) | Lesson | Facing a sick dependency rather than a total outage, leave able to pick a degraded mode and what you refuse to drop. |
+| 80 | [Losing a region](days/80-losing-a-region.md) | Lesson | Facing a region that is already dark, leave able to state RPO, RTO, and which side is authoritative for new writes. |
+| 81 | [Observability that pages a human](days/81-observability-that-pages-a-human.md) | Lesson | Facing an on-call question, leave able to name the dashboard, the page, and the first runbook step for a failure you designed. |
+| 82 | [Cost as a spoken trade-off](days/82-cost-as-a-spoken-trade-off.md) | Lesson | Facing a design that is correct and expensive, leave able to cut replicas, egress, or retention and say the user-visible risk. |
+| 83 | [Migration while live](days/83-migration-while-live.md) | Lesson | Facing a system that must change shape, leave able to migrate with a dual path and a rollback while writes continue. |
+| 84 | [Mock: delivery dispatch with a late failure](days/84-mock-delivery-dispatch-with-a-late-failure.md) | Mock | Facing a dispatch problem that is not an SLO or migration lecture, leave able to design matching and, near minute 25, lose a region or the location store. |
 
 ## Phase 6 — Mocks and the kit (Days 85–90)
 

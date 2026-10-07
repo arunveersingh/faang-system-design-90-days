@@ -102,4 +102,18 @@ Day 49 is the mandatory log entry for Phase 3. Do not open the reference until y
 
 Day 63 and day 77 are the mandatory log entries for Phase 4. Do not open the reference until you have scored your own page. Days 50–62 stay closed during the day-63 timer. Days 71–76 stay closed during the day-77 timer.
 
+## Phase 5
+
+- [ ] Day 78 — [SLOs and the miss a user sees](days/78-slos-and-the-miss-a-user-sees.md)
+- [ ] Day 79 — [Degradation under partial failure](days/79-degradation-under-partial-failure.md)
+- [ ] Day 80 — [Losing a region](days/80-losing-a-region.md)
+- [ ] Day 81 — [Observability that pages a human](days/81-observability-that-pages-a-human.md)
+- [ ] Day 82 — [Cost as a spoken trade-off](days/82-cost-as-a-spoken-trade-off.md)
+- [ ] Day 83 — [Migration while live](days/83-migration-while-live.md)
+- [ ] Day 84 — [Mock: delivery dispatch with a late failure](days/84-mock-delivery-dispatch-with-a-late-failure.md), closed book, not the SLO or region or migration lectures, then one design-log entry in your own notes
+
+Day 84 is the mandatory log entry for Phase 5. Do not open the reference until you have scored your own page. Days 78–83 stay closed during the day-84 timer.
+
+
+
 [Start](START.md) · [How to study](HOW-TO-STUDY.md) · [Curriculum (map)](CURRICULUM.md)

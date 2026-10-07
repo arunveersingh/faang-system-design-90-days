@@ -90,5 +90,14 @@
   - [Day 76 — Audit log](/days/76-audit-log.md)
   - [Day 77 — Mock: email inbox](/days/77-mock-email-inbox.md)
 
-- **Phase 5+ coming**
-  - Days 78–90 are not written. No pages, so nothing to click.
+- **Phase 5**
+  - [Day 78 — SLOs and the miss a user sees](/days/78-slos-and-the-miss-a-user-sees.md)
+  - [Day 79 — Degradation under partial failure](/days/79-degradation-under-partial-failure.md)
+  - [Day 80 — Losing a region](/days/80-losing-a-region.md)
+  - [Day 81 — Observability that pages a human](/days/81-observability-that-pages-a-human.md)
+  - [Day 82 — Cost as a spoken trade-off](/days/82-cost-as-a-spoken-trade-off.md)
+  - [Day 83 — Migration while live](/days/83-migration-while-live.md)
+  - [Day 84 — Mock: delivery dispatch](/days/84-mock-delivery-dispatch-with-a-late-failure.md)
+
+- **Phase 6 coming**
+  - Days 85–90 are not written. No pages, so nothing to click.
