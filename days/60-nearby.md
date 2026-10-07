@@ -90,6 +90,24 @@ Update writes new cell; TTL soft-delete if stale (>2× update period). Clients s
 
 Hot cells: cache top POIs; movers in separate hotter store. Shed huge r.
 
+
+### Staff arithmetic: mover writes and downtown reads
+
+1e6 movers × update every 10 s ≈ **100k writes/s** into the geo store — that is why movers are not "a Postgres table with earthdistance" alone. Queries 20k/s in dense cities hit hot cells: cache static POIs; keep movers in a hotter path; **cap radius** so a 50 km downtown query cannot fan out to hundreds of cells.
+
+Distance on quantized centers is approximate — good enough for "nearby," wrong for surveying. Say the quantization (~100–200 m for people) as both a privacy and a correctness bound.
+
+
+
+### Worked path: downtown query
+
+1. Auth + rate limit; cap `r` and `k`.
+2. Cover query circle with S2/geohash cells at chosen resolution.
+3. Parallel get static POIs (cached) + movers from hot store for those cells.
+4. Merge by distance on quantized centers; scrub foreign coordinates to distance bands; return.
+
+**Self vs other.** Request may include precise self location for ranking; logs store reduced precision. Other people never leave the server as lat/lng.
+
 ## Diagrams
 
 ```mermaid
@@ -104,23 +122,41 @@ Caption: "Cell fan-out, then privacy scrub before the client."
 
 ## Failure the user sees
 
-**Stale movers.** Ghost cars; empty street. Show "location may be up to Xs old."
+**Stale movers.** Ghost cars; empty street. Show "location may be up to Xs old" (15–60 s SLO). TTL soft-delete if update older than ~2× period — a mover that stopped updating must disappear, not park forever.
 
-**Shard down.** Regional hole; 503 for that area, not wrong points from empty.
+**Shard down.** Regional hole; **503 for that area**, not an empty list that looks like "nothing nearby." Empty and outage must differ.
+
+**Privacy leak.** Other users' raw lat/lng in JSON or logs — treat as a Sev-1 product bug, not a style nit. Scrub on the read path; reduce precision in logs.
+
+**Stalking via query hammering.** Rate limit per account/IP; require opt-in for people-nearby; refuse uncapped r/k.
+
+**Huge radius.** Fan-out across too many cells; latency blows. Hard cap r (e.g. 5–10 km for people, larger for POIs if product needs) and k.
 
 ## Trade-offs
 
-**Precise vs quantized storage.** Quantized for people-nearby; precise for own session only.
+**Precise vs quantized storage.** Quantized for people-nearby; precise for own session only (device or short TTL).
 
-**Postgres vs dedicated geo.** Static POIs can live in PG with indexes; movers need purpose-built.
+**Postgres vs dedicated geo.** Static POIs can live in PG with indexes; movers need purpose-built write path.
+
+**Name the refusal inside each alternative.** Against returning strangers' lat/lng: you refuse a stalking API. Against precise storage of all movers forever: you refuse a retention and leak magnet. Against uncapped radius: you refuse downtown meltdown. Against one PG box for 100k mover writes/s: you refuse a known cliff. Against "empty" when the shard is dead: you refuse masking an outage as no results.
+
+**10× movers.** ~1M writes/s — more geo shards by coarse cell; same privacy scrub. Query caps stay.
 
 ## Talking points
 
 **If they return other users' lat/lng.** "Privacy bug. Distance bands only."
 
+**If they ask geohash vs S2.** "Either; I need cell cover of radius, shard by coarse cell, merge by approximate distance. The brand matters less than fan-out and scrub."
+
+**If they ask how fresh drivers are.** "Update every 5–30 s when active; soft-delete after ~2× period; UI bound 15–60 s."
+
+**If they ask about their own navigation blue dot.** "Precise can stay on device or short-TTL server session. That is not what we return about other people."
+
+**If they ask what pages.** "Mover write lag, query p99 in hot cells, and — separately — any response analytics that show raw foreign coordinates (should be zero)."
+
 ## Say this in the room
 
-Nearby queries hit a cell-based geo index sharded by region — geohash or S2 — with radius capped and results merged by approximate distance. Movers update on the order of every ten seconds into a hot store with a staleness bound; static POIs are colder. I store and return quantized locations for other people, never raw coordinates, and I rate-limit queries so the API is not a stalking tool. Dense downtown cells get caching and separate mover handling so one city does not melt the cluster.
+Nearby queries hit a cell-based geo index sharded by region — geohash or S2 — with radius capped and results merged by approximate distance on quantized centers. About a million movers updating every ten seconds is roughly 100k writes a second into a hot geo store, not a single earthdistance table. Static POIs are colder and cacheable downtown. I store and return quantized locations for other people, never raw coordinates, scrub logs, and rate-limit queries so the API is not a stalking tool. A dead shard is a 503 for that area, not an empty list.
 
 ### Staff depth: privacy is a read-path scrub
 
@@ -128,7 +164,13 @@ Quantize movers for matching (~100–200 m). Responses return distance bands, ne
 
 **Hot downtown.** Cache static POIs; movers in a hotter store; cap radius.
 
-**What staff sounds like.** Cell fan-out plus scrub; staleness of movers spoken; refuse precise leaks in logs too.
+**Stale vanish.** Soft-delete movers that miss ~2× update period so ghosts do not park forever.
+
+**What staff sounds like.** 100k mover writes/s said once; cell fan-out plus scrub; empty≠outage; refuse precise leaks in logs too.
+
+### More probes, with the answer
+
+**"What pages?"** Name the user-visible lag or error metric from Failure — not only CPU. **"What do you refuse?"** Pick one refusal from Trade-offs and say the lie it prevents. **"What is the sensitive assumption?"** The estimate that flips the design if wrong by 10×.
 
 ## Kit artifact
 
