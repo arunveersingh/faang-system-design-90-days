@@ -91,6 +91,10 @@ Compute "charge" by toggling a mutable balance without a ledger entry. Dual-writ
 
 Authorized in PSP, local state not updated → recovery poll PSP. Captured locally, PSP uncertain → poll; never capture with new key.
 
+### Staff arithmetic: unknown is a state
+
+Authorize returns success / decline / **unknown** (timeout). Unknown is not "retry with a new idempotency key" — that double-charges. Retry the **same** key until the provider answers or a reconciliation path (day 66) decides. Capture is a second call on a prior auth; void/cancel if capture will not happen. Ledger (your books) is written **before** or in careful order with provider calls — never "provider succeeded, we crashed before ledger" without a recovery story. At checkout QPS of hundreds to low thousands, the cliff is correctness under retries, not NIC.
+
 ## Diagrams
 
 ```mermaid
@@ -112,33 +116,53 @@ Caption: "Same key returns the same money movement. Provider key tied to payment
 
 ## Failure the user sees
 
-**PSP down.** 503; no charge if authorize did not accept. Pending unknowns recovered by poll.
+**Timeout on authorize.** Client retries; if you minted a new key, two auths — double hold on the card. Same key → provider returns the first result. User sees one charge path.
 
-**Double click.** Same key; one auth.
+**Capture after auth expired.** Provider declines; order must not ship. Ledger shows auth voided/expired.
 
-**New key on retry.** Two auths — client bug you cannot always stop; SDKs must reuse keys.
+**Ledger write fails after provider success.** Recovery job finds provider success by idempotency key and completes ledger — or day 66 recon. User must not see "paid" in provider and "unpaid" forever in your app without a ticket.
+
+**Provider outage.** New checkouts 503/unknown; do not pretend decline. Queue and retry with same keys.
+
+**Refund race.** Refund before capture settles — define state machine; refuse silent no-ops without audit.
 
 ## Trade-offs
 
-**Auth+capture vs charge.** Auth+capture for delayed fulfillment. Direct charge for digital goods — still idempotent.
+**Auth+capture vs auth-only then capture.** Auth+capture for simple digital goods; separate for delayed fulfillment.
 
-**Strong ledger vs mutable balance.** Ledger wins for audit (day 76 cousin).
+**Ledger-first vs provider-first.** Prefer intent/ledger row first with state `pending`, then provider, then `authorized` — crash windows become recoverable.
+
+**Name the refusal inside each alternative.** Against new idempotency key on retry: you refuse double auth. Against treating unknown as decline: you refuse lying to the user and possibly shipping unpaid. Against provider success without ledger recovery: you refuse money you cannot see. Against refund without audit entries: you refuse an unverifiable books change.
+
+**10× checkout.** More payment workers; same idempotency and ledger rules. Provider rate limits become the ceiling — shed gracefully.
 
 ## Talking points
 
-**If they "just call Stripe."** "Where is your ledger and idempotency when Stripe times out?"
+**If they retry with a new key.** "That is how you double-charge. Same key until terminal state."
+
+**If they ask auth vs capture.** "Auth holds; capture takes money. Delayed ship → separate capture. Digital → often auth+capture together."
+
+**If they ask what unknown means in the UI.** "Pending payment — not failed. Poll or webhook; recon if stuck."
+
+**If they ask about PCI.** "Use a provider token / hosted fields; your servers never see PAN. Out of deep dive unless asked."
+
+**If they ask ledger shape.** "Append-only entries (day 66); balances are projections."
 
 ## Say this in the room
 
-Every authorize and capture needs an idempotency key that maps to one payment and one ledger append; retries with the same key return the same result and cannot move money twice. The provider call uses an idempotency key derived from the payment id, and a timeout leaves an unknown state we recover by querying the provider — we never mint a new key to "try again." Authorize and capture are separate states so we can void holds. A mutable balance without an append-only ledger is how silent corruption happens.
+Payments are a ledger-first state machine: create an intent with an idempotency key, authorize with that key, then capture or void — timeouts are unknown, not a cue to mint a new key. A retry with a new key is how you double-hold a card. The provider can succeed while we crash before the ledger write; recovery and reconciliation (day 66) close that window. I refuse treating unknown as declined, and I refuse shipping on auth alone when capture is still required.
 
 ### Staff depth: unknown is a state, not a retry with a new key
 
-Timeout on authorize → pending unknown → poll provider with the **same** idempotency key. New key is how you double-charge. Ledger append is the local truth that reconciles tomorrow (day 66).
+Same idempotency key until success/decline/void. Unknown → poll/webhook/recon. Ledger append; balances derived.
 
-**Auth vs capture.** Holds vs money moved; void releases holds.
+**Crash windows.** (1) before provider call — safe retry same key; (2) after provider success before ledger — recovery; (3) after ledger before user 201 — user retries, idempotent read of intent.
 
-**What staff sounds like.** Three keys aligned (client, payment, provider); refuse mutable balance without ledger entries.
+**What staff sounds like.** Naming the three crash windows; refusing new keys on retry; auth≠capture spoken.
+
+### More probes, with the answer
+
+**"What pages?"** Name the user-visible lag or error metric from Failure — not only CPU. **"What do you refuse?"** Pick one refusal from Trade-offs and say the lie it prevents. **"What is the sensitive assumption?"** The estimate that flips the design if wrong by 10×.
 
 ## Kit artifact
 
