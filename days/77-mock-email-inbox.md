@@ -1,5 +1,5 @@
 <!-- day-nav -->
-[← Day 76 — Audit log](76-audit-log.md) · [Checklist →](../CHECKLIST.md)
+[← Day 76 — Audit log](76-audit-log.md) · [Day 78 — SLOs and the miss a user sees →](78-slos-and-the-miss-a-user-sees.md)
 
 # Day 77 — Mock: email inbox
 
@@ -288,10 +288,10 @@ Globally we may ingest hundreds of thousands of messages a second, so bodies and
 
 One amendment line: the concrete miss (list fetched bodies, no dedupe, search on primary LIKE, blocked ingest on search, no huge-mailbox story). Leave the scores alone.
 
-Days 78–90 are not written yet. Phase 5 starts at SLOs. Do not invent them from this reference.
+Next up is Phase 5 (failure and senior signal), starting at [Day 78](78-slos-and-the-miss-a-user-sees.md). Do not invent those lessons from this reference.
 
 
 ---
 
 <!-- day-nav -->
-[← Day 76 — Audit log](76-audit-log.md) · [Checklist →](../CHECKLIST.md)
+[← Day 76 — Audit log](76-audit-log.md) · [Day 78 — SLOs and the miss a user sees →](78-slos-and-the-miss-a-user-sees.md)
