@@ -96,6 +96,18 @@ CDN/edge cache for popular prefixes (`wi`, `wid`, …) with **30–60 s** TTL. I
 
 Refuse huge result materialization. Auth optional. Hide suppressed brands. Same-prefix hammering: per-IP QPS.
 
+
+### Worked path: keystroke → edge → replica
+
+1. Normalize `q`; if `len < 2` return empty (or branded allow-list).
+2. Edge cache key = normalized prefix; TTL 30–60 s.
+3. Miss → regional suggest replica; top 10 from precomputed top-M for that prefix.
+4. No join to catalog primary. No live popularity counter read.
+
+**Builder.** Catalog CDC + popularity snapshots → segment publish every few minutes. A rename is two ops: remove old string's prefixes, add new. Bound end-to-end ≤ 10 minutes including edge.
+
+**Abuse.** Per-IP QPS; captcha only if product already has it — do not invent. Suppressed brands filtered at build time so they never enter top-M.
+
 ## Diagrams
 
 ```mermaid
@@ -111,11 +123,15 @@ Caption: "Keystroke never hits OLTP. Builder owns freshness bound."
 
 ## Failure the user sees
 
-**Index replica down.** Fail over; or return stale edge; or empty suggestions with search still working — empty typeahead is better than 5 s OLTP LIKE.
+**Index replica down.** Fail over to another replica; or return stale edge; or empty suggestions with full search still working — empty typeahead is better than a 5 s OLTP `LIKE`. Never fall back to primary SQL on the keystroke path.
 
-**Builder stalled 2 hours.** Staleness SLO breached; page. Users see old names; renames ghost. Product still sells via full search (day 57).
+**Builder stalled 2 hours.** Staleness SLO breached; page on build age. Users see old names; renames ghost. Product still sells via full search (day 57). Admin tools read catalog primary.
 
-**Popularity wrong.** Ranking weird but functional; not a hard outage.
+**Popularity wrong.** Ranking weird but functional; not a hard outage. Exact counters are off-path; online path uses last build's scores.
+
+**Prefix `a` without a cap.** Materializing millions of matches is an outage dressed as helpfulness. Top-M per prefix is mandatory; deep browse is search, not typeahead.
+
+**Edge TTL longer than freshness budget.** Edge alone would show a renamed product for an hour after CDC already fixed the index. Keep edge TTL (30–60 s) **inside** the ~10 minute build bound.
 
 ## Trade-offs
 
@@ -125,15 +141,25 @@ Caption: "Keystroke never hits OLTP. Builder owns freshness bound."
 
 **Typo tolerance.** Costs latency; day 57 territory.
 
+**Name the refusal inside each alternative.** Against `LIKE` on the catalog at 100k QPS: you refuse an OLTP outage. Against uncapped short prefixes: you refuse catalog materialization. Against personalization on the online path: you refuse killing the edge cache. Against exact online popularity: you refuse a counter read on every keystroke. Against edge TTL as the only freshness story: you refuse a rename that ghosts for an hour.
+
+**10× QPS.** ~1M keystroke/s. More edge + more suggest replicas; same derived index. Still no OLTP on the path.
+
 ## Talking points
 
 **If they LIKE on MySQL.** "At 100k QPS, that is the interview mistake. Derived prefix index."
 
 **If they ask exact popularity.** "Online path uses last build's scores. Exact counters are off-path."
 
+**If they ask how a rename appears.** "CDC to the builder within about 10 minutes; edge may add up to a minute on top. Admin UI reads primary."
+
+**If they ask about one-character queries.** "Empty or branded shorts only, or a hard top-M. I will not return half the catalog."
+
+**If they ask what the user sees when suggest is down.** "Empty suggestions; search box still submits to day 57. I will not block checkout on typeahead."
+
 ## Say this in the room
 
-Typeahead is about 100,000 keystroke QPS at peak against a derived prefix index that already stores the top completions by popularity — not LIKE on the catalog. Edge caches hot prefixes for about a minute inside a ten-minute freshness bound fed by CDC and popularity rebuilds. Short prefixes return a capped top-M so `a` cannot materialize the catalog. If the index is down I serve empty or stale edge, never a five-second OLTP fallback on the keystroke path.
+Typeahead is about 100,000 keystroke QPS at peak against a derived prefix index that already stores the top completions by popularity — not LIKE on the catalog. Edge caches hot prefixes for about a minute inside a ten-minute freshness bound fed by CDC and popularity rebuilds. Short prefixes return a capped top-M so `a` cannot materialize the catalog. If the index is down I serve empty or stale edge, never a five-second OLTP fallback on the keystroke path. Personalization stays client-side so the edge cache survives.
 
 ### Staff depth: why LIKE dies and why `a` must be capped
 
@@ -141,7 +167,13 @@ Typeahead is about 100,000 keystroke QPS at peak against a derived prefix index 
 
 **Personalization kills edge cache.** Keep recents client-side.
 
-**What staff sounds like.** Keystroke path never touches OLTP; empty/stale beats a 5 s LIKE fallback.
+**Index size.** Tens of GB RAM for FST + scores is a fat box or first-character shards — plan it, do not hand-wave "Redis."
+
+**What staff sounds like.** Keystroke path never touches OLTP; empty/stale beats a 5 s LIKE fallback; freshness bound spoken before the trie brand.
+
+### More probes, with the answer
+
+**"What pages?"** Name the user-visible lag or error metric from Failure — not only CPU. **"What do you refuse?"** Pick one refusal from Trade-offs and say the lie it prevents. **"What is the sensitive assumption?"** The estimate that flips the design if wrong by 10×.
 
 ## Kit artifact
 
