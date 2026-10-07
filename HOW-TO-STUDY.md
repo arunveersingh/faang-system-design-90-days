@@ -23,9 +23,13 @@ A timer, a blank page, and no notes from that week. Score yourself with the rubr
 
 Day 7 is that mock for Phase 1. Day 28 is the mock for Phase 2, and it is not the pastebin. Day 49 is the mock for Phase 3, and it is not that week's schema, index, or retention lesson. If you already scrolled past a barrier, close the page and run it tomorrow from memory.
 
+## Debrief day
+
+Days 87 and 89. Open your prior mock log only. Re-score, rewrite one weak section, then read. Do not turn a debrief into a second product design.
+
 ## What not to do
 
-- Do not treat the [curriculum](CURRICULUM.md) as today's lesson. It is the map. Days 1–49 are written. Days 50–90 are coming and are not links.
+- Do not treat the [curriculum](CURRICULUM.md) as today's lesson. It is the map. Days 1–90 are written.
 - Do not keep a second copy of a problem "so you have it." The problem page on this site is the card. The folder is still named `prompts/`.
 - Do not wait for the kit. Days you can run now do not need it. The kit is a separate product.
 

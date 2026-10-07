@@ -1,10 +1,10 @@
 # Curriculum
 
-> **This is the map, not today's lesson.** Days 1–84 are written. Start at [Day 1](days/01-what-the-interview-is-grading.md). Days 85–90 are titles until a page exists.
+> **This is the map, not today's lesson.** Days 1–90 are written. Start at [Day 1](days/01-what-the-interview-is-grading.md).
 
 Interview-depth system design for senior and staff loops. One day, one sitting. Pure distributed systems: no AI or ML lessons.
 
-This file is the 90-day assignment list, adapted from the course topic list for this repo. **Phase 1 (days 1–7), Phase 2 (days 8–28), Phase 3 (days 29–49), Phase 4 (days 50–77), and Phase 5 (days 78–84) are written** under `days/`. Days 85–90 are assigned below and are not in the repo yet. Do not treat a title as a lesson until a page exists.
+This file is the 90-day assignment list, adapted from the course topic list for this repo. **Phases 1–6 (days 1–90) are written** under `days/`.
 
 Problem pages under [`prompts/`](prompts/README.md) are the problem bank. The folder is still named `prompts/`. If a problem file is updated, **the problem file wins** over a title here. Read the problem page on this site before a mock.
 
@@ -149,19 +149,18 @@ Staff credit is the failure you can operate, pay for, and migrate. Day 84 is a p
 
 ## Phase 6 — Mocks and the kit (Days 85–90)
 
-**Coming. Not written.** These rows are titles only. They are not links, so there is no empty page to open.
+**Written.** Open each day under `days/` in order. Days 86, 88, and 90 are closed-book mocks. Days 87 and 89 are debriefs of your own logs.
 
-
-Three full loops: read-heavy, write-heavy, realtime. Debriefs are their own days. Day 90 is kit-run: no lesson beside the timer.
+Three full interviews: read-heavy, write-heavy, realtime. Debriefs are their own days. Day 90 is kit-run: no lesson beside the timer. The kit is optional; use the lobby fallback if you do not own it.
 
 | Day | Title | Type | Intent |
 |---|---|---|---|
-| 85 | Kit hookup and the design log | Kit | Facing the last mocks without a shared ritual, leave able to run a timer, the senior rubric, and a design log, and see where the separate kit plugs in. |
-| 86 | Mock: article serving (read-heavy) | Mock | Facing a read-heavy problem that is not the kit-setup lesson, leave able to design article serving with hot pages and invalidation on publish, inside the time box. |
-| 87 | Debrief: read-heavy mock | Debrief | Facing the day-86 writeup, leave able to score it on the senior rubric and rewrite only the weakest section into the design log. |
-| 88 | Mock: event intake (write-heavy) | Mock | Facing a write-heavy problem, leave able to design event intake with dedupe, late events, and a durable sink, and leave a complete design-log entry. |
-| 89 | Debrief: write-heavy mock | Debrief | Facing the day-88 writeup, leave able to score it, compare it with day 86, and log the one staff-level gap to close before the final mock. |
-| 90 | Mock: realtime lobby (kit run) | Mock | Facing a realtime loop with no lesson beside it, leave able to run the kit's current problem (fallback: multiplayer lobby) and leave the design log as the only artifact. |
+| 85 | [Kit hookup and the design log](days/85-kit-hookup-and-the-design-log.md) | Kit | Facing the last mocks without a shared ritual, leave able to run a timer, the senior rubric, and a design log, and see where the separate kit plugs in. |
+| 86 | [Mock: article serving (read-heavy)](days/86-mock-article-serving-read-heavy.md) | Mock | Facing a read-heavy problem that is not the kit-setup lesson, leave able to design article serving with hot pages and invalidation on publish, inside the time box. |
+| 87 | [Debrief: read-heavy mock](days/87-debrief-read-heavy-mock.md) | Debrief | Facing the day-86 writeup, leave able to score it on the senior rubric and rewrite only the weakest section into the design log. |
+| 88 | [Mock: event intake (write-heavy)](days/88-mock-event-intake-write-heavy.md) | Mock | Facing a write-heavy problem, leave able to design event intake with dedupe, late events, and a durable sink, and leave a complete design-log entry. |
+| 89 | [Debrief: write-heavy mock](days/89-debrief-write-heavy-mock.md) | Debrief | Facing the day-88 writeup, leave able to score it, compare it with day 86, and log the one staff-level gap to close before the final mock. |
+| 90 | [Mock: realtime lobby (kit run)](days/90-mock-realtime-lobby-kit-run.md) | Mock | Facing a realtime interview with no lesson beside it, leave able to run the kit's current problem (fallback: multiplayer lobby) and leave the design log as the only artifact. |
 
 ## Optional appendices
 
@@ -215,10 +214,10 @@ Mock rule: the problem is never that week's lesson topic. Day 7 is the exception
 | 63 | Job scheduler | Not search, video, nearby, tickets, or metrics ingest |
 | 77 | Email inbox | Not graph, stories, crawler, order book, flags, or audit |
 | 84 | Delivery dispatch | Not the SLO, failover, or migration lectures. A region or the location store dies near minute 25 |
-| 86 | Article serving | Read-heavy. Not the day-85 setup lesson |
-| 88 | Event intake | Write-heavy. Not a replay of the metrics days |
-| 90 | Kit realtime card, else multiplayer lobby | No lesson. Realtime |
+| 86 | [Article serving](prompts/article-serving.md) | Read-heavy. Not the day-85 setup lesson |
+| 88 | [Event intake](prompts/event-intake.md) | Write-heavy. Not a replay of the metrics days |
+| 90 | Kit realtime card, else [multiplayer lobby](prompts/multiplayer-lobby.md) | No lesson. Realtime |
 
 Titles in this list are the initial assignment. If a page under `prompts/` is updated, the updated problem wins. Pull before a mock. Do not keep a private copy as the source of truth.
 
-The kit (script, stencils, trade-off card, follow-up bank, grader notes, extra problem cards) is a separate product sold on its own. Day 85 shows how it attaches. Days 1–84 and the debriefs do not require it. Day 90 is written to be run from the kit; until you own it, use the fallback lobby problem and the same timer and rubric. Do not block the other 89 days on the kit.
+The kit (script, stencils, trade-off card, follow-up bank, grader notes, extra problem cards) is a separate product sold on its own. [Day 85](days/85-kit-hookup-and-the-design-log.md) shows how it attaches. Days 1–84 and the debriefs do not require it. Day 90 is written to be run from the kit; until you own it, use the [multiplayer lobby](prompts/multiplayer-lobby.md) fallback and the same timer and rubric. Do not block the other 89 days on the kit.

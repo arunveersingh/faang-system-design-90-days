@@ -29,7 +29,7 @@ Not a new-grad course. Not an AI or ML course. The 90 days are distributed syste
 | 29–49 | Written. Phase 3, guarantees, keys, and the failure you accept. Day 49 is a different mock. |
 | 50–77 | Written. Phase 4, product-shaped systems. Days 63 and 77 are different mocks.
 | 78–84 | Written. Phase 5, failure and senior signal. Day 84 is a dispatch mock with a late failure.
-| 85–90 | Assigned in the curriculum. Not written yet. |
+| 85–90 | Written. Phase 6, mocks and the kit hookup. Days 86, 88, and 90 are closed-book mocks. |
 
 Phase 1 is the spine. Phase 2 adds a box only when that pastebin misses a number or a fault you already stated. Do not skip ahead to "look distributed."
 
@@ -39,7 +39,7 @@ The course brief is [PROPOSAL.md](PROPOSAL.md). Locked choices (audience, length
 
 The interview kit (timer script, requirements checklist, estimation sheet, stencils, trade-off card, follow-up bank, grader notes, extra problem cards) is a **separate product**. It is not in this repo, and it is not required to start.
 
-Each written lesson leaves a single hookup note: one checklist row or one stencil callout, so the kit can attach later to the same places you already practice. Days 1–84 do not need it. When day 85 exists, it shows the attachment. Day 90 can be run without the kit, on the fallback problem named in the curriculum.
+Each written lesson leaves a single hookup note: one checklist row or one stencil callout, so the kit can attach later to the same places you already practice. Days 1–84 do not need it. [Day 85](days/85-kit-hookup-and-the-design-log.md) shows the attachment. Day 90 can be run without the kit, on the [multiplayer lobby](prompts/multiplayer-lobby.md) fallback.
 
 Do not block the other days waiting for the kit.
 
