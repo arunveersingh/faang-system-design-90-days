@@ -85,6 +85,10 @@ Load latest snapshot; replay log to tip; resume. Gateways buffer or reject with 
 
 Old matcher must not apply after new leader — epoch in log (day 36). Dual matchers = divergent books = catastrophe.
 
+### Staff arithmetic: single matcher sequence
+
+Matching must be **totally ordered** per instrument — one matcher sequence (or deterministic leader) so two sells cannot both match the same bid. Ingress can shard by symbol; within a symbol, one pipeline. Market data fan-out is a read path (day 54 cousin): append an event log, subscribers get streams; do not make every match write N user inboxes. Persistence: command/event log + snapshot for fast rebuild after crash. Self-trade prevention and rate limits are product rules on the hot path.
+
 ## Diagrams
 
 ```mermaid
@@ -111,29 +115,49 @@ Caption: "Rebuild is deterministic replay, not inventing state."
 
 ## Failure the user sees
 
-**Matcher failover 2 s.** Orders pause; then continue. Duplicate NEW if client retries without idemp — use cl_ord_id unique.
+**Double match.** Two takers fill the same resting liquidity — money bug. Caused by parallel matchers without a fence.
 
-**Ack before durable.** Crash loses acked order — refuse that policy for this product.
+**Matcher down.** Trading halt on that symbol; 503 cancels/new orders. Snapshot+log rebuild within SLO (seconds to low minutes). Other symbols fine if sharded.
+
+**Gap in market data.** Client sees wrong top of book — resync from seq, like chat catch-up.
+
+**Self-trade.** User hits own order; prevent or cancel-resting per policy.
+
+**Clock for time-priority.** Matcher sequence is priority, not NTP between clients.
 
 ## Trade-offs
 
-**Log-then-match vs match-then-log.** Log-then-match safer for money; slightly higher latency.
+**In-memory book + log vs DB row per level.** In-memory for latency; log is truth for rebuild.
 
-**Snapshot frequency.** Faster recovery vs IO.
+**Name the refusal inside each alternative.** Against multi-threaded match without ordering: you refuse double fills. Against Kafka-as-matcher without a single consumer per symbol: you refuse races. Against rebuilding only from DB snapshots without the event log: you refuse lost fills. Against client clocks for priority: you refuse unfair ordering.
+
+**10× messages.** Still one sequence per symbol; scale by symbols and hardware; or core-affinity.
 
 ## Talking points
 
-**If they shard one instrument's book.** "Breaks price-time. Shard instruments, not the book."
+**If they shard one symbol's match.** "Only if deterministic merge — usually do not. Shard by symbol."
+
+**If they ask persistence.** "Event log every accept/match/cancel; snapshot periodically; rebuild on boot."
+
+**If they ask fairness.** "Price-time priority inside the matcher sequence. Ingress rate limits per firm."
+
+**If they ask market data.** "Seq'd event stream; clients catch up on gap. Not per-user inbox copies."
+
+**If they ask what pages.** "Matcher lag, rebuild time, sequence gaps on the data feed."
 
 ## Say this in the room
 
-Each instrument has one matcher and one totally ordered command log — price-time priority needs a single sequence, not a committee. The in-memory book is a projection; we snapshot and replay the log to recover after a crash, with fencing so an old matcher cannot diverge the book. Client acks follow the durability policy (ack after the command is durable). Retries use client order ids so reconnects do not double-enter. We shard by instrument, never by price level on the same book.
+An order book for one instrument is a single matcher sequence: orders get a total order, matches are deterministic, and persistence is an event log plus snapshots for rebuild — not concurrent matchers hoping for the best. Market data is a sequenced fan-out stream, not N inbox writes per fill. If the matcher dies we halt that symbol and rebuild from log within a stated SLO. Client clocks do not decide time priority. Self-trade controls sit on the hot path.
 
-### Staff depth: ack after durable, rebuild by replay
+### Staff depth: single matcher sequence
 
-Match-then-lose-log loses acked orders. Snapshot + deterministic replay; fence old matcher. Shard by instrument, never by side of one book.
+One leader/pipeline per symbol. Log + snapshot. Data feed is seq'd.
 
-**What staff sounds like.** Single sequence; RPO policy spoken; dual matcher = catastrophe.
+**What staff sounds like.** Refuse parallel match; rebuild SLO; sequenced market data.
+
+### More probes, with the answer
+
+**"What pages?"** Name the user-visible lag or error metric from Failure — not only CPU. **"What do you refuse?"** Pick one refusal from Trade-offs and say the lie it prevents. **"What is the sensitive assumption?"** The estimate that flips the design if wrong by 10×.
 
 ## Kit artifact
 
