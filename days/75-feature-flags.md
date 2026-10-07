@@ -87,6 +87,10 @@ Hash user_id + flag → sticky percentage. Server-side only; client-supplied % i
 
 Brief disagreement OK for UX flags; for authz kill switches, prefer fail closed defaults and faster push.
 
+### Staff arithmetic: control plane vs data plane
+
+Flag changes publish from a control plane to many app processes. Data plane keeps a **local snapshot**; evaluate rules in-process (no remote call on every request). Stale bound (e.g. **30–60 s**) spoken — longer is a product risk for kills. Kill switch needs a **faster path** (push/short poll) than routine percentage rollouts. Targeting rules (user id %, country) must be pure functions of attributes you already have — flag service down must fail closed or open **per flag**, not freeze the site.
+
 ## Diagrams
 
 ```mermaid
@@ -101,29 +105,49 @@ Caption: "Request path never waits on the control plane."
 
 ## Failure the user sees
 
-**Stale 2 minutes after kill.** Too long if bound was 5s — incident. Show version lag dashboard.
+**Flag flip takes 30 minutes.** Stale snapshot; kill switch useless. Bound the propagate SLO; push for critical flags.
 
-**Control plane down.** SDKs keep last snapshot; new publishes stall — safe defaults for new processes that never fetched.
+**Flag service down, apps block.** Every request waits on remote eval — outage. Local snapshot required.
+
+**Wrong default on miss.** New flag missing in snapshot — fail closed for risky, fail open for irreversible UX? Say per flag.
+
+**Percentage sticky?** Same user should see stable bucket (hash user id + flag) unless you want flicker.
+
+**Config typo enables for 100%.** Need review/canary of the flag config itself; progressive rollout.
 
 ## Trade-offs
 
-**Poll vs push.** Push for kill speed; poll as safety net.
+**Push vs poll.** Poll simple; push for kill. Hybrid common.
 
-**Huge rule engines.** Keep rules small; complexity kills predictability.
+**Name the refusal inside each alternative.** Against remote eval on each request: you refuse coupling availability to the flag service. Against unbounded stale: you refuse a kill switch that cannot kill. Against random() per request without stickiness: you refuse flickering UX and broken experiments. Against one global fail-open: you refuse dangerous defaults for payments flags.
+
+**10× apps.** Same publish; more subscribers. Snapshot size stays small.
 
 ## Talking points
 
-**If they HTTP to flag service each request.** "Adds latency and a hard dependency on the hot path. Local snapshot."
+**If they call Redis every request.** "Local snapshot. Flag service outage must not be site outage."
+
+**If they ask kill switch.** "Faster propagate path; page on propagate lag for critical flags."
+
+**If they ask percentage.** "Hash(user, flag) sticky. Not coin flip per request."
+
+**If they ask defaults.** "Per-flag fail closed/open. Payments-like flags fail closed."
+
+**If they ask what pages.** "Propagate lag, snapshot age, eval errors — and accidental 100% enables."
 
 ## Say this in the room
 
-Flags evaluate from an in-process snapshot so request latency does not include a control-plane hop. The admin API publishes a versioned config that SDKs receive by push with poll backup; ordinary flags may be tens of seconds stale, kill switches have a tighter bound like five seconds and we page on fleet version lag. Bucketing is sticky hashing of user id and flag name. New processes that cannot fetch fail closed on dangerous flags. Brief disagreement across instances is expected inside the stale bound.
+Feature flags evaluate from a local snapshot in the data plane so the flag control plane can die without taking the site down. Routine rollouts can poll within about a minute; kill switches use a faster push path. Percentage targeting is sticky on hash(user, flag), not a coin flip per request. Defaults on missing flags are per-flag — fail closed for risky paths. I page on propagate lag for critical flags, not only on control-plane CPU.
 
-### Staff depth: no network on the request path
+### Staff depth: control plane publish, data plane local snapshot
 
-Local snapshot eval. Kill switch lag SLO tighter than marketing flags; page on fleet version skew. Fail closed for dangerous defaults when snapshot missing. Sticky bucketing server-side.
+Stale bound spoken. Kill switch faster. Sticky bucketing.
 
-**What staff sounds like.** Control vs data plane split; stale bound for kill in one breath.
+**What staff sounds like.** Local eval; refuse remote-per-request; kill lag SLO.
+
+### More probes, with the answer
+
+**"What pages?"** Name the user-visible lag or error metric from Failure — not only CPU. **"What do you refuse?"** Pick one refusal from Trade-offs and say the lie it prevents. **"What is the sensitive assumption?"** The estimate that flips the design if wrong by 10×.
 
 ## Kit artifact
 
