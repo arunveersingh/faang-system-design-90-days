@@ -232,7 +232,7 @@ sequenceDiagram
   I-->>MTA: 250
 ```
 
-Caption: "Dedupe, bytes, metadata, then search async. 250 after durable mail."
+Caption: "Dedupe, bytes, metadata, then search async. 250 after durable mail. Point at tempfail if bytes are not durable."
 
 ```mermaid
 flowchart LR
@@ -242,19 +242,23 @@ flowchart LR
   search[Search] --> idx[(Per-mailbox index)]
 ```
 
-Caption: "List never walks bodies. Search is derived and can lag."
+Caption: "List never walks bodies. Search is derived and can lag. If list opens objects, redraw."
 
 ### Failure the user sees, per person
 
-**SMTP retry after 250.** Same Message-ID; user sees one mail.
+**SMTP retry after 250.** Same Message-ID; user sees one mail. Without dedupe, two unread copies — classic MTA retry bug.
 
-**Indexer 10 minutes behind.** Inbox shows mail; search omits it briefly — UI honesty.
+**Indexer 10 minutes behind.** Inbox shows mail; search omits it briefly — UI honesty ("search may lag"). Page on index lag past SLO (~1 min typical).
 
-**Attachment GET, bucket blip.** 503; retry. List still works.
+**Attachment GET, bucket blip.** 503; retry. List still works — metadata path isolated from body bytes.
 
-**Mailbox with 5M messages.** First page fast; search scoped; archive tier for old.
+**Mailbox with 5M messages.** First page fast; search scoped per mailbox; archive tier for old. Without metadata indexes, list becomes a full scan — death.
 
-**Metadata down.** User cannot open inbox — 503. Already delivered mail at MTA may tempfail.
+**Metadata down.** User cannot open inbox — 503. Already-in-flight SMTP may tempfail (4xx) so senders retry — better than 250 with a ghost header and no body.
+
+**Object store down on ingest.** Do not 250 after writing metadata alone — ghost unread with missing body. Tempfail until bytes durable (or write body first, then metadata, with orphan GC).
+
+**Cross-mailbox search.** Refuse for normal users — isolation/privacy. Admin path separately audited (day 76).
 
 ### Trade-offs you should have named
 
@@ -266,6 +270,8 @@ Caption: "List never walks bodies. Search is derived and can lag."
 
 **Global search across users.** Refuse in this product without admin — isolation.
 
+**Name the refusal inside each alternative.** Against list fetching bodies: you refuse huge-mailbox death. Against 250 before bytes durable: you refuse ghost headers. Against sync search on ingest: you refuse coupling receive latency to the indexer. Against LIKE on primary for search: you refuse day-57's mistake inside mail. Against no Message-ID dedupe: you refuse duplicate unread from MTA retries.
+
 ### Probes the interviewer will use, with the answer
 
 **"List slow on big mailbox?"** "Metadata index by mailbox and time; never fetch bodies for list."
@@ -276,13 +282,25 @@ Caption: "List never walks bodies. Search is derived and can lag."
 
 **"Where do attachments live?"** "Object keys on the message; signed GET; not inline in list."
 
+**"Object store down at receive?"** "Tempfail SMTP; do not 250 a metadata row without durable bytes."
+
+**"Power user 5M mails?"** "Cursor page of 50 from metadata; search per-mailbox index; cold tier."
+
 ### What you did not need
 
 Social graph edges. Story CDN TTL as the deep dive. Crawler politeness. Matching engine. Feature flag SDK. Audit hash notarization.
 
 ## Say this in the room
 
-Globally we may ingest hundreds of thousands of messages a second, so bodies and attachments go to object storage and the mailbox primary only stores metadata keyed by mailbox_id — listing the inbox is a cursor over headers, not a scan of bodies. SMTP retries use Message-ID dedupe so the user does not get two unread copies. Search is a per-mailbox derived index fed by outbox, allowed to lag up to about a minute while the inbox list stays correct. A power user with millions of messages still pages fifty at a time from the metadata index; cold mail can tier out. If the indexer is down, mail still lands; if the object store is down on ingest, we tempfail the receive and do not write a ghost header.
+Globally we may ingest hundreds of thousands of messages a second, so bodies and attachments go to object storage and the mailbox primary only stores metadata keyed by mailbox_id — listing the inbox is a cursor over headers, not a scan of bodies. SMTP retries use Message-ID dedupe so the user does not get two unread copies; I will not 250 until bytes are durable, or I create ghosts. Search is a per-mailbox derived index fed by outbox, allowed to lag up to about a minute while the inbox list stays correct. A power user with millions of messages still pages fifty at a time from the metadata index; cold mail can tier out. If the indexer is down, mail still lands; if the object store is down on ingest, we tempfail the receive.
+
+### Staff depth: list never walks bodies
+
+Metadata row is the list path. Bodies are objects. Search is derived and lagged on purpose.
+
+**Receive ordering.** Bytes then metadata (or atomic story with tempfail). Dedupe on Message-ID.
+
+**What staff sounds like.** Huge-mailbox pagination; refuse ghost 250; search lag spoken; isolation of search across mailboxes.
 
 ### After you read this
 
