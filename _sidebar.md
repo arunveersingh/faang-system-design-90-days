@@ -106,3 +106,11 @@
   - [Day 88 — Mock: event intake](/days/88-mock-event-intake-write-heavy.md)
   - [Day 89 — Debrief: write-heavy mock](/days/89-debrief-write-heavy-mock.md)
   - [Day 90 — Mock: realtime lobby](/days/90-mock-realtime-lobby-kit-run.md)
+
+- **Appendices** (optional, after day 90)
+  - [Overview](/appendices/README.md)
+  - [Company quirks](/appendices/company-quirks.md)
+  - [Classic papers](/appendices/classic-papers.md)
+  - [Dynamo](/appendices/dynamo.md)
+  - [Spanner](/appendices/spanner.md)
+  - [Raft](/appendices/raft.md)
