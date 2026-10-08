@@ -127,7 +127,7 @@ This shows the shape on an earlier problem, so it spoils nothing this week. Day 
 
 | Dimension | Score | Evidence from my page |
 |---|---|---|
-| Requirements | 3 | "Non-goals: spam ML, search ranking, attachments over 25 MB" |
+| Requirements | 3 | "Non-goals: spam ML, calendar, contacts sync — search stays in" |
 | Estimates | 2 | "Lots of mail per day" — no per-user rate, no storage per year |
 | API and data | 3 | "`messages(user_id, thread_id, msg_id)`, list by `(user_id, received_at)`" |
 | Design | 3 | "Write path to per-user mailbox shard; read path paginates the index" |
