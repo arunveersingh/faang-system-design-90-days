@@ -121,6 +121,41 @@ flowchart TB
 
 Caption: "The kit plugs into the ritual. It does not replace days 1–89."
 
+## A filled log entry (example, not yours)
+
+This shows the shape on an earlier problem, so it spoils nothing this week. Day 77's email inbox. Read it for **evidence quality**, not for the design.
+
+| Dimension | Score | Evidence from my page |
+|---|---|---|
+| Requirements | 3 | "Non-goals: spam ML, search ranking, attachments over 25 MB" |
+| Estimates | 2 | "Lots of mail per day" — no per-user rate, no storage per year |
+| API and data | 3 | "`messages(user_id, thread_id, msg_id)`, list by `(user_id, received_at)`" |
+| Design | 3 | "Write path to per-user mailbox shard; read path paginates the index" |
+| Deep dive | 2 | "Use Elasticsearch for search" — a product name, no cost named |
+| Failure and ops | 2 | "Replicas" — nothing a user sees |
+
+**One gap:** "Estimates had no numerator; next mock I write per-user rate × users before any box."
+
+Notice what makes it honest. Every score points to words that are actually on the page. The 2s are not softened. There is one gap, not three. Because the gap is a rule, the next mock can check it.
+
+## Evidence calibration
+
+| Claimed | Evidence that supports it | Evidence that does not |
+|---|---|---|
+| Estimates 3 | "2k/s peak, 50 KB each ⇒ 100 MB/s uncached" | "High traffic" |
+| Design 3 | "Publish bumps revision, then purge" | "CDN" alone |
+| Deep dive 4 | A number or a concrete fault, plus what it does not solve | "We would tune it" |
+| Failure 3 | "Sink down ⇒ producers get 503 and retry; page on append errors" | "It's replicated" |
+
+If you cannot point to the phrase, write the lower score. A debrief day can raise a score only with evidence that was already on the page.
+
+## Mock-day hygiene that quietly ruins the measurement
+
+- Reading the next day's problem card the night before. The card is short, but your brain designs overnight.
+- Rehearsing the reference you read for an earlier mock and calling it today's design.
+- Pausing the timer for "just one thought." Interviews do not pause.
+- Filling the log from memory a day later. Fill it inside the 10 minutes, or the scores drift upward.
+
 ## What you refuse
 
 - Buying the kit as a gate to start day 86.
