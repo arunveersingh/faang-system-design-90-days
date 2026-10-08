@@ -199,7 +199,7 @@ A batch of 100 where 3 events fail validation should not reject the 97. Return *
 
 ### Ordering you promise, and ordering you refuse
 
-Order is per partition, so per producer if you key by `producer_id`. Global order across producers is refused: it would need one partition, which breaks at 2k requests/s, not 2M events/s. One noisy producer can hot-spot its partition. Use a per-producer rate limit, or salt that producer's key and give up its ordering. Say which.
+Order is per partition, so per producer if you key by `producer_id`. Global order across producers is refused: it needs a single partition, and one partition cannot take 100 MB/s at peak, let alone 10×. One noisy producer can hot-spot its partition. Use a per-producer rate limit, or salt that producer's key and give up its ordering. Say which.
 
 ### Wrong answers that cap the score
 

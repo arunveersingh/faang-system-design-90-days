@@ -158,6 +158,8 @@ Not days 53–54 full chat history product. Not live video (day 59). Not day 85 
 
 Presence heartbeats: 400k / 10 s = **40k/s** updates — shard by `room_id`. Fan-out on ready: ×(n-1) per room; keep n small (≤8). 10× rooms breaks a single gateway process and a single room-service box — partition rooms.
 
+**Staff arithmetic: connections, heartbeats, reconnect storms.** If one gateway holds ~50k WebSocket connections, 400k sessions need **≥ 8** gateways. Plan **16**, so draining one moves **25k** sockets, not 50k. Spread their reconnects with jitter over **10 s** and that is **~2.5k joins/s**, inside the 5k/s peak budget. Without jitter, 25k reconnects land in about one second, at 5× peak. **Heartbeats stay in memory:** 40k/s only refresh `last_seen` inside the room authority. Durable writes happen on state changes (join, leave, ready, start), bounded by the **≤ 5k/s** join/leave peak. Writing every heartbeat to a database is the beginner's 40k writes/s. **Fan-out:** a ready event goes to n − 1 peers: ~3 on average, 7 at the cap of 8.
+
 ### API and data
 
 - HTTPS: `POST /rooms`, `POST /rooms/{id}/join` (idempotent with `player_id` or auth subject), `POST /rooms/{id}/start`
@@ -184,6 +186,33 @@ Presence heartbeats: 400k / 10 s = **40k/s** updates — shard by `room_id`. Fan
 | Player connected elsewhere | Migrate WS; brief blip | Rooms on that shard: join/start 503; show "room unavailable" |
 | Player in affected room | May need reconnect | Presence freezes; do not double-start from a client guess |
 | Operator | Page gateway error rate | Page authority health + start CAS conflicts |
+
+### Deep dive: double-start and split authority
+
+**The start crash window.** The authority CASes `open → starting`, mints `match_id`, then crashes before telling the match service or the players. On recovery the room is `starting` with a `match_id`, so a client retry returns that same id. The second hole is downstream: the match-create call must be idempotent on `(room_id, room_version)`, or a retry after a timeout creates two matches anyway. The CAS fences the room; the idempotency key fences the handoff.
+
+**Two authorities for one room.** The node owning a room shard stalls (a GC pause or a partition). Its lease expires and a new owner takes the shard. The old owner wakes up and still believes it owns the room. Both accept `start`. Fix: ownership carries a **fencing epoch**, and every durable room write includes it. The store rejects a write with an older epoch. A lease without a fence is a timeout, not a lock.
+
+**Ghost window, with the number.** Presence TTL 30 s plus a sweeper every 5 s means a dead player can appear present for up to **~35 s**. During that window, start policy must count only fresh seats, or the room starts a match with a ghost in it.
+
+### Mid-ready edge cases you should decide out loud
+
+- **Host disconnects.** Either host passes to the earliest-joined live seat, or the room closes after the TTL. Pick one.
+- **Player drops after the start CAS.** The match already has the roster. Reconnect lands in the match, not the lobby.
+- **Player reconnects after the TTL removed the seat.** Rejoin if the room is still open and has space. Otherwise say "room full" or "match started without you." Never clone a seat.
+- **Two tabs, same player.** One seat. The newest connection wins the socket and the older tab gets a "connected elsewhere" message.
+
+### Wrong answers that cap the score
+
+**Global lock or one database row per action across all rooms.** 100k rooms do not contend with each other. Partition by `room_id`.
+
+**Presence written to the database every heartbeat.** 40k writes/s for data that is only meaningful for 30 s.
+
+**Client decides the room is ready and starts.** Two clients race and create two matches. The server fence decides.
+
+**Reconnect creates a new player.** The room shows the same person twice and the seat count lies.
+
+**Netcode lecture.** In-match simulation is out of scope. The lobby is membership, ready, and the start fence.
 
 ### Diagrams
 
@@ -223,6 +252,8 @@ Caption: "Ghosts expire. Reconnect does not clone."
 
 **Client-predicted start vs server CAS.** Snappy UX vs double-match risk — prefer server fence.
 
+**Name the refusal inside each alternative.** In-process room actors refuse database round-trips on every action and accept failover and fencing work. Database row locks refuse custom ownership logic and accept join latency. A short presence TTL refuses long ghosts and accepts false leaves on flaky mobile networks. The server start fence refuses double matches and accepts one round-trip of start latency.
+
 ### Say this in the room
 
 A lobby is partitioned by room: gateways fan out, a room authority owns seats with unique `(room_id, player_id)`, presence dies after thirty seconds without a heartbeat, and start is a compare-and-swap so retries cannot create two matches. Reconnect restores the same seat. If the authority shard is down those rooms go unavailable instead of inventing membership on the client. That is the same honesty rule as ack-after-durable on the write-heavy day — success means the room state mutation landed.
@@ -232,6 +263,27 @@ A lobby is partitioned by room: gateways fan out, a room authority owns seats wi
 Day 90's artifact is the **design log**, not a certificate. Staff credit is reconnect without cloning, start fencing, and presence with a number — plus whatever one rule you carried from day 89.
 
 **What staff sounds like.** Seat key. Presence TTL. Start CAS. Gateway vs authority. User-visible shard death.
+
+### Talking points (when the interviewer pushes)
+
+**"A gateway dies with 25k players on it."** "Clients reconnect with jittered backoff to another gateway, the same `player_id` restores the same seat, and room state lives in the authority, so nothing is lost. I page if reconnect success drops or join latency spikes."
+
+**"The room authority node is partitioned, not dead."** "Its lease expires and a new owner takes over with a higher epoch. The old owner's writes are rejected by the fence. Players in that room may see a few seconds of 'reconnecting.'"
+
+**"Players complain a friend shows as present but never readies."** "That's the ghost window: 30 s TTL plus sweep. If the product wants it faster, shorten the heartbeat. That costs mobile battery and false leaves. Start only counts fresh seats either way."
+
+### More probes, with the answer
+
+**"What pages?"** Start CAS conflicts and duplicate-match attempts, reconnect success rate, authority lease churn, gateway error rate. Not raw connection count alone. **"What do you refuse?"** Client-decided start, heartbeat writes to durable storage, global locks, cloning on reconnect, ownership without a fence. **"What is the sensitive assumption?"** Players per room. A cap of 8 keeps fan-out trivial; a 1,000-person lobby is a different product with sampled presence. **"Where does the time go?"** Seat key, presence TTL, and start CAS by minute 28. Then gateway drain and authority loss, each with what players see.
+
+### Failure at grading altitude
+
+| Fault | Wrong answer | Staff answer |
+|---|---|---|
+| Gateway drained | Players lose their seats | Jittered reconnect restores the same seat; authority holds the truth |
+| Authority stalls, then resumes | Two owners both start | Fencing epoch; older-epoch writes rejected |
+| Crash after start CAS | Retry mints a second match | Same `match_id` returned; match create idempotent on room version |
+| Player vanishes mid-ready | Room waits forever | 30 s TTL plus sweep; leave broadcast; start counts fresh seats only |
 
 ### After you read this
 
