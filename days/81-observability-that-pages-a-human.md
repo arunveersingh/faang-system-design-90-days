@@ -66,6 +66,8 @@ At 350 creates/s, a **1%** fail rate is **3.5 misses/s ≈ 12,600/hour**. That m
 
 Phone pages more than **~2/week** per rotation train humans to ignore them. If your design pages on every blip, you designed noise, not operability.
 
+**Staff arithmetic: pages per week.** At 350/s, a **1%** miss rate ≈ 3.5/s ≈ **12,600 misses/hour**. Whether that is fast burn depends on remaining budget (day 78) — a fresh month tolerates it longer than a month already 80% spent. Alert text must carry **burn hours-to-exhaust** or a sustained symptom window, not `error_count > 10`. If you page on CPU at 70% with green creates, you will silence the pager before the real Sev.
+
 ## API and data
 
 Observability artifacts (interview-level):
@@ -156,6 +158,12 @@ Caption: "Step one changes exposure while the dependency is still sick."
 
 **Missing broken-ack page.** Users hold dead links while dashboards look "mostly green" on HTTP 201 rate alone.
 
+**Dashboard tourism.** Twelve graphs, no verb. On-call scrolls while creates keep failing. The failure mode of observability without a runbook step.
+
+**Auto-shed on a false burn.** Creates blocked for everyone because a low-QPS blip looked like fast burn. Guards: nontrivial QPS floor, multi-window confirm, easy kill switch back to accept.
+
+**Alert says ErrorRateHigh.** No dependency hint, no playbook link, no burn hours. Human wakes into archaeology.
+
 ## Trade-offs
 
 **Sensitivity vs fatigue.** Tight alerts catch sooner and train ignore. Use burn + sustained windows.
@@ -164,6 +172,8 @@ Caption: "Step one changes exposure while the dependency is still sick."
 
 **Auto-remediation.** Auto-shed on burn is powerful and dangerous (false positive blocks creates). Prefer auto-shed only with tight guards; auto-promote regions is scarier (day 80).
 
+**Name the refusal inside each alternative.** Against CPU-only pages: you refuse noise that trains ignore. Against 201-counter health: you refuse hiding broken acks. Against "investigate" as step one: you refuse a page with no verb. Against per-paste metric labels: you refuse cardinality explosions (day 62). Against paging on every blip: you refuse a dead rotation.
+
 ## Talking points
 
 **If they list Prometheus/Datadog only.** "Brand is fine. What signal pages a human for create failure?"
@@ -171,6 +181,12 @@ Caption: "Step one changes exposure while the dependency is still sick."
 **If they page on CPU.** "Show me the user miss. CPU without symptom is a ticket."
 
 **If first step is 'check Slack.'** "Slack is coordination. The runbook verb comes first."
+
+**If first step is rollback vs shed.** "Board picks the verb: bucket timeouts → shed; new build owns errors → rollback; region probe dead → fence and promote; body_missing → stop creates."
+
+**If they want one alert for everything.** "Split symptom burn from broken-ack. Correctness pages harder and must not wait on a mushy error average."
+
+**If they skip request_id.** "Then 3 a.m. is four dashboards and a guess. Wide event with dependency that failed is the minimum."
 
 ## Say this in the room
 
@@ -181,6 +197,10 @@ Creates failing at 3 a.m. should page on SLO fast burn or sustained create misse
 If you cannot name the page, you did not finish the design. Dashboard without a verb is tourism.
 
 **What staff sounds like.** Alert condition. Board. First change. Noise you refused.
+
+### More probes, with the answer
+
+**"What pages?"** Create SLO fast burn and broken-ack — with playbook id in the alert text. **"What do you refuse?"** CPU-only phone pages; 201-without-GET as health; "investigate" as step one. **"What is the sensitive assumption?"** QPS floor and burn window — low traffic makes raw error % lie; budget remaining changes urgency. **"Where does the time go?"** Write the alert string and the first verb before naming vendors.
 
 ## Example alert text (write it)
 
@@ -197,6 +217,16 @@ That string beats "ErrorRateHigh" because it names burn, window, dependency hint
 | Region A probe fail, B OK | Region loss | Fence + promote |
 | 201 rate OK, body_missing ↑ | Broken ack | Stop creates + integrity |
 | One tenant 90% of fails | Hot key / abuse | Fairness / isolate |
+
+### Failure at grading altitude
+
+| Board picture | Wrong first step | Staff first step |
+|---|---|---|
+| Bucket timeouts 40% | Lengthen PUT timeout | Open breaker / shed creates |
+| Errors only on new build | Add more logs | Rollback |
+| Region A probe dead | Wait on DNS | Fence + promote (day 80) |
+| 201 OK, body_missing ↑ | Watch longer | Stop creates; integrity path |
+| CPU high, creates green | Page the phone | Ticket; no user miss |
 
 ### Interviewer pushes
 

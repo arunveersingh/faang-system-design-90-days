@@ -65,6 +65,8 @@ Write:
 
 At 116/s, a **1-hour** write outage drops ~400k creates — unacceptable for this product story and deadly to a 99.9% budget. Even **60 seconds** of hard create downtime at peak is 21k misses. Design for **continuous writes**. Backfill of N million rows: quote a rate (for example 5k rows/s) and a wall clock; say you throttle so primary lag stays healthy.
 
+**Staff arithmetic: downtime is a budget event.** 350/s × 60 s ≈ **21,000** peak misses per minute of big-bang cutover. A "short" 10-minute maintenance window ≈ **210,000** — most of a 99.9% month (day 78). Backfill at 5k rows/s for 50M rows ≈ **~2.8 hours** wall clock if you can sustain it; throttle when old primary lag or create p99 regresses. Dual-run cost (two stores) is the price of a flag rollback — buy the soak (day 82 tension, still buy it).
+
 ## API and data
 
 Public API unchanged (`POST /pastes`, `GET /pastes/{id}`). Internal:
@@ -160,6 +162,14 @@ Caption: "201 follows old truth; new catches up without owning the ack yet."
 
 **Big-bang night.** Scheduled create outage — user sees save failures; SLO burns by arithmetic.
 
+**Outbox lag ignored.** New store hours behind; you flip reads anyway; intermittent 404 on live pastes. Worst migration bug class.
+
+**Two truths accepting writes.** Conflict without a rule — active-active by accident across two stores (day 43 lesson).
+
+**Rollback = restore last night's backup.** RPO measured in hours after you already deleted the dual path. Keep old until soak completes so rollback is a flag.
+
+**Idempotency only on old after cutover started.** Retry hits new, key missing, second insert — user gets two links for one save intent.
+
 ## Trade-offs
 
 **Sync dual write vs outbox.** Sync couples create latency/availability to new store; outbox lags new. Prefer outbox while old is truth.
@@ -167,6 +177,8 @@ Caption: "201 follows old truth; new catches up without owning the ack yet."
 **Long dual-run cost.** Paying two stores (day 82 tension) during soak — buy soak time anyway.
 
 **Batch maintenance window.** Simpler engineering, explicit downtime product cost — usually refuse for create path at this QPS.
+
+**Name the refusal inside each alternative.** Against hour-long write stops: you refuse a budget-class incident as a migration plan. Against two equal truths: you refuse conflict without a rule. Against backup-restore as happy-path rollback: you refuse hours of RPO. Against 201 on new while old is truth: you refuse lying acks. Against skipping idempotency continuity: you refuse double creates on retry.
 
 ## Talking points
 
@@ -176,15 +188,25 @@ Caption: "201 follows old truth; new catches up without owning the ack yet."
 
 **If rollback is 'restore backup.'** "That is RPO measured in hours. Keep old until soak is done so rollback is a flag."
 
+**If they skip shadow reads.** "Then the first traffic flip is the experiment. Shadow with fallback until divergence is boring."
+
+**If they dual-write sync and new is down.** "You coupled create availability to the store you are still proving. Outbox while old is truth."
+
+**If cutover already happened and new is corrupt.** "Reverse project only if you kept events; else backup RPO — say that risk before you flip truth."
+
 ## Say this in the room
 
-We expand the partitioned store first while Postgres stays the truth. Creates keep committing on Postgres and project through an outbox into the new store; the 201 still waits only on Postgres so we never lie. Backfill copies history until lag is near zero, then we shadow reads, then shift reads, then shift writes — each step behind a flag that can send traffic back to Postgres in a minute. Idempotency keys stay on the current truth so retries do not fork. I am not taking an hour of create downtime to move metadata.
+We expand the partitioned store first while Postgres stays the truth. Creates keep committing on Postgres and project through an outbox into the new store; the 201 still waits only on Postgres so we never lie. Backfill copies history until lag is near zero, then we shadow reads, then shift reads, then shift writes — each step behind a flag that can send traffic back to Postgres in a minute. Idempotency keys stay on the current truth so retries do not fork. I am not taking an hour of create downtime to move metadata. Gate metrics (outbox lag, divergence, create success) block each flip; failing a gate means stay or roll the flag back, not push through.
 
 ### Staff depth: migration is operability under change
 
 Same as day 45 expand/backfill, but for store shape. Truth, projection, soak, flag rollback.
 
 **What staff sounds like.** Dual path. Gate metrics. Rollback before cutover hardens.
+
+### More probes, with the answer
+
+**"What pages?"** Outbox lag to new, shadow divergence, create success regression — not only new-store CPU. **"What do you refuse?"** Hour write windows at this QPS; two truths; backup as happy rollback; 201 before truth durable. **"What is the sensitive assumption?"** Backfill rate vs primary lag — throttle or you migrate by taking prod down quietly. **"Where does the time go?"** Truth-per-phase and flag rollback before debating partition keys.
 
 ## Gate metrics before each flip
 
@@ -204,6 +226,26 @@ Fail any gate → do not advance phase; rollback flag if already advanced.
 - Accept-create path reads keys from **truth**.  
 - After cutover, old key store read-only for soak.  
 - Never 201 on new if truth is still old.
+
+### Phase card (draw this)
+
+| Phase | Truth | Creates | Reads | Rollback |
+|---|---|---|---|---|
+| A expand | Old | Old | Old | N/A |
+| B dual write | Old | Old + outbox→new | Old | Flag: stop projecting |
+| C backfill | Old | Old + outbox | Old | Flag |
+| D shadow | Old | Old + outbox | Prefer old; sample new | Flag |
+| E read new | Old (writes) | Both | Prefer new; fall back old | Flag still cheap |
+| F write new | New | New | New | Harder — old read-only soak |
+
+### Failure at grading altitude
+
+| Situation | Wrong answer | Staff answer |
+|---|---|---|
+| Must move metadata | Friday night writes off | Dual path; continuous writes |
+| New store empty | Flip reads now | Backfill + lag gate + shadow |
+| Bad cutover | Restore week-old backup | Flag back to old while dual path lives |
+| Retry after cutover | New id each try | Idempotency on current truth |
 
 ### Interviewer pushes
 

@@ -66,6 +66,8 @@ Partial failure means the dependency still answers sometimes, but not inside bud
 
 If you block the request thread for 8 s on each create, at 350/s peak you need thousands of blocked workers and you will melt the app tier before the bucket recovers. Shedding is not optional; it is arithmetic. If you queue body uploads and return 202, you must say when the link becomes real — a 202 with a link that 404s for minutes is a broken ack under another status code.
 
+**Staff arithmetic: bulkhead before the melt.** 350 creates/s × 8 s blocked ≈ **2,800** concurrent blocked create calls. Cap concurrent bucket PUTs (bulkhead, day 19). When the bulkhead is full, fail in **~20 ms** without calling the bucket. At 40% timeouts with a 1 s cap you still burn create SLO fast (day 78): 0.4 × 350 ≈ **140 misses/s** at peak if every timed-out create is a miss — monthly budget (~300k) dies in well under an hour. Degradation without budget language is cosplay.
+
 ## API and data
 
 Degraded mode is a **behavior**, preferably explicit:
@@ -75,6 +77,8 @@ Degraded mode is a **behavior**, preferably explicit:
 - Optional response header or status page flag: `degraded=object_store_slow` so support is not guessing.
 
 Do not invent a new public API unless you need the pending state. Most pastebin staff answers **fail closed on create** and keep reads.
+
+**What you refuse to return.** `200` with empty body. `201` before PUT succeeds. `404` on origin fill when the bucket timed out (that teaches clients the paste was deleted).
 
 ## Design
 
@@ -95,6 +99,8 @@ Do not invent a new public API unless you need the pending state. Most pastebin 
 **Return 201 before PUT.** Broken ack. Day 14 and day 78 both refuse this.
 
 **Retry storms into the sick store.** One retry max with jitter; then shed. Multiplying load on a slow dependency is how partial failure becomes total.
+
+**Silent 200 "ok" with no paste.** Quiet lie. Degrade loud.
 
 ### Soft degrade worth naming (optional)
 
@@ -120,7 +126,7 @@ stateDiagram-v2
   Degraded --> Degraded: creates 503, reads edge ok
 ```
 
-Caption: "Degraded is a state with entry and exit, not harder retries forever."
+Caption: "Degraded is a state with entry and exit, not harder retries forever. Flap control is part of the design."
 
 ```mermaid
 sequenceDiagram
@@ -134,7 +140,7 @@ sequenceDiagram
   Note over A: no row, no link, SLO miss
 ```
 
-Caption: "Short timeout plus fail-closed beats waiting out an 8s p99."
+Caption: "Short timeout plus fail-closed beats waiting out an 8s p99. Bulkhead fails faster when full."
 
 ## Failure the user sees
 
@@ -146,6 +152,10 @@ Caption: "Short timeout plus fail-closed beats waiting out an 8s p99."
 
 **Operator.** Page on enter-degraded and on SLO burn, not only on total outage.
 
+**Long-timeout "success."** Creator waited 10 s, got 201, app tier is half-dead, next users all 503 — you turned partial failure into a self-DoS. That is the failure of refusing to shed.
+
+**Pending-create link shared immediately.** Recipient hits 404 for minutes. Trust burn worse than a clean "save failed."
+
 ## Trade-offs
 
 **Fail closed vs pending create.** Pending needs a product that tolerates unread links; pastebin share UX usually does not.
@@ -153,6 +163,8 @@ Caption: "Short timeout plus fail-closed beats waiting out an 8s p99."
 **Aggressive shed vs retry once.** Retry once can clear a blip; retry thrice melts the bucket. Prefer breaker.
 
 **Status page honesty vs quiet 503.** Honesty reduces duplicate incident tickets; costs PR ownership.
+
+**Name the refusal inside each alternative.** Against 10 s timeouts: you refuse self-DoS. Against local-disk fallback: you refuse split brain on recovery. Against 201-before-PUT: you refuse broken acks. Against retry storms: you refuse amplifying the sick dependency. Against 404 on bucket timeout: you refuse teaching "deleted" for a transient miss.
 
 ## Talking points
 
@@ -162,15 +174,25 @@ Caption: "Short timeout plus fail-closed beats waiting out an 8s p99."
 
 **If they want 200 with empty body.** "That is a lie. Degrade loud."
 
+**If they retry five times.** "You just multiplied load into the sick store. One retry, then breaker."
+
+**If they keep creates green on a status page.** "Creates are failing. Say so. Edge reads being green is a different product."
+
+**If they ask when to leave degraded.** "Probes succeed for N minutes — not the first lucky PUT. Avoid flap."
+
 ## Say this in the room
 
-Object store slow is a degraded mode, not a longer timeout. I keep a one-second PUT budget, trip a breaker when timeouts spike, and fail creates closed with 503 so I never 201 a paste I could not store. Reads that still hit the CDN keep working; origin fills return 503, never 404. I leave degraded when probes succeed for a stretch, and I watch create-SLO burn the whole time — retries do not get to multiply into the sick store.
+Object store slow is a degraded mode, not a longer timeout. I keep a one-second PUT budget, trip a breaker when timeouts spike, and fail creates closed with 503 so I never 201 a paste I could not store. Bulkhead caps concurrent PUTs so 8-second tails cannot pin thousands of workers. Reads that still hit the CDN keep working; origin fills return 503, never 404. I leave degraded when probes succeed for a stretch, and I watch create-SLO burn the whole time — retries do not get to multiply into the sick store.
 
 ### Staff depth: refuse the quiet lie
 
 Partial failure tempts fake success. Staff refuses. Mode name, loud miss, protected codes, exit criteria.
 
 **What staff sounds like.** "Creates are degraded; reads are mostly edge; here is how we leave."
+
+### More probes, with the answer
+
+**"What pages?"** Enter-degraded, create SLO fast burn, and breaker open rate — not CPU alone. **"What do you refuse?"** Fake 201; long timeouts; retry storms; 404 on origin timeout. **"What is the sensitive assumption?"** PUT p99 and timeout fraction — at 40% timeouts the monthly create budget dies in under an hour at peak. **"Where does the time go?"** Name the mode and the create code first; then the bulkhead arithmetic that makes long timeouts impossible.
 
 ## Mode card (draw this)
 
@@ -186,11 +208,37 @@ Partial failure sits between healthy and hard down. The difference is **detectio
 
 350 creates/s × 8 s blocked ≈ **2,800** concurrent blocked create calls. If each holds a worker, you need thousands of threads/connections just to wait on a sick dependency. Cap concurrent bucket PUTs (bulkhead). When the bulkhead is full, fail fast without calling the bucket. That is day 19 applied to a slow store.
 
+### Probe script you can draw
+
+1. Name the sick dependency and the budget it threatens (create 2 s, PUT 1 s).
+2. Enter `DEGRADED_OBJECT_STORE` on timeout/p99 breach — write the state name on the board.
+3. Create path: short timeout, breaker, **503**, no row.
+4. Read path: edge ok; origin miss **503** not **404**.
+5. Exit: probes green for N minutes; watch SLO burn the whole time.
+
+That five-line script is the interview answer. Retries-without-a-mode is not.
+
+### Failure at grading altitude
+
+| Sick thing | Wrong answer | Staff answer |
+|---|---|---|
+| Bucket p99 = 8 s | Wait 10 s | Keep 1 s timeout; 503; breaker |
+| 40% PUT timeouts | Retry ×5 | One retry max; then shed |
+| Creates failing, CDN green | "We're up" | Creates degraded; status honest |
+| Origin GET times out | Return 404 | Return 503 |
+| Leadership wants creates no matter what | Local disk fallback | Buy capacity/failover; no split brain |
+
+### What "partial" still costs in SLO
+
+Day 78 budget ≈ 300k misses/month. Peak 350/s with 40% timeouts ⇒ ~140 misses/s if every timeout is a failed create. Time to empty the monthly budget ≈ 300000/140 ≈ **36 minutes**. Say it: partial failure is still a Sev-shaped burn event. The degrade mode stops the app melting; it does not pause the budget clock.
+
 ### Interviewer pushes
 
 **"Buffer bodies in the app and retry."** Memory becomes a second store; process restart loses "accepted" work unless you spool durably. If you spool to local disk you reinvent day 14's problem. Prefer fail-closed unless the product explicitly wants async create.
 
 **"Serve stale CDN past max-age automatically."** Name it as an emergency switch with a max extension (for example +5 minutes) and accept serve-after-delete risk. Automatic forever-stale is how deleted pastes stay public.
+
+**"Pending create is fine for share links."** Then write the customer-visible state machine: when the GET becomes 200, what the recipient sees before that, and how long you allow pending before you fail the create intent and burn the SLO anyway.
 
 ## Kit artifact
 

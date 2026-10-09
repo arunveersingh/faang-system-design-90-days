@@ -70,6 +70,8 @@ Write:
 
 Create SLO: 5 minutes at 350/s ≈ **105,000** failed creates — a large fraction of a 99.9%/month budget (day 78). Region loss is a budget-class event even when "reads still work."
 
+**Staff arithmetic: lost acks at peak.** RPO ~5 s × 350/s ≈ **1,750** creates that may have returned 201 in US and never reached EU. Those are not "eventual." They are links that 404 after promote. Undrilled RTO of 45 minutes ≈ 350 × 2700 ≈ **945,000** create misses — several months of 99.9% budget in one afternoon. Drill the runbook or stop claiming a 5-minute RTO.
+
 ## API and data
 
 No new public API. Operational switches:
@@ -151,6 +153,10 @@ Caption: "RPO hurts people who already got a link. RTO hurts everyone trying to 
 
 **US flickers back without fence.** Duplicate creates, split deletes, silent corruption. This is the failure you refuse by fencing.
 
+**Clients still hammering dark US.** Connection pools ignore DNS; creates hang until client timeout. Pull US from the origin pool / anycast immediately — DNS TTL alone is not RTO.
+
+**Brownout promoted as dark.** Automatic promote while US is 50% alive briefly yields two writers. Shed US creates first; human confirms dark; then promote with fence.
+
 ## Trade-offs
 
 **Faster DNS TTL vs sticky clients.** Low TTL helps RTO but increases steady-state DNS load; connection pools may ignore DNS — need load balancer / anycast failaway, not only DNS.
@@ -158,6 +164,8 @@ Caption: "RPO hurts people who already got a link. RTO hurts everyone trying to 
 **Automatic promote vs human gate.** Automatic is faster RTO, higher risk of promote on a brownout. Human gate is slower, safer for brownouts misdetected as dark. Say which you run.
 
 **RPO 0 sync.** Latency and coupled outages vs never losing a 201.
+
+**Name the refusal inside each alternative.** Against dual writers mid-incident: you refuse split brain. Against DNS-only failover: you refuse hanging pools as "RTO done." Against RPO 0 without sync cost: you refuse a free lunch. Against skipping the fence: you refuse a healed US becoming a second primary. Against calling lost-ack 404s "eventual consistency": you refuse a lie about a 201 that will never exist on the promoted side.
 
 ## Talking points
 
@@ -167,15 +175,25 @@ Caption: "RPO hurts people who already got a link. RTO hurts everyone trying to 
 
 **If they want zero data loss and zero create downtime.** "That is sync active-active or a stretched primary — pick a different cost and failure story."
 
+**If they skip the fence.** "When US returns you have two primaries. Idempotency and deletes fork. Fence is part of RTO."
+
+**If they say RTO is the DNS TTL.** "RTO ends when a probe create on the surviving authority returns 201 and GET finds the body — promote, fence, and origin flip included."
+
+**If they keep US in the create pool "just in case."** "Then every create is a coin flip into the dark. Pull it."
+
 ## Say this in the room
 
-US-East is dark: our RPO is about five seconds of async lag — on the order of a couple thousand peak creates that may have returned 201 and will 404 after we promote. RTO for creates is about five minutes if the promote runbook is drilled: fence US, promote EU, flip origin, probe a create. During that window creates 503; edge reads still work. EU becomes the only writer; if US returns without a fence we risk split brain, so fencing is part of the failover, not a follow-up. I am not flipping to active-active in the middle of the incident.
+US-East is dark: our RPO is about five seconds of async lag — on the order of a couple thousand peak creates that may have returned 201 and will 404 after we promote. RTO for creates is about five minutes if the promote runbook is drilled: fence US, promote EU, flip origin, probe a create. During that window creates 503; edge reads still work. EU becomes the only writer; if US returns without a fence we risk split brain, so fencing is part of the failover, not a follow-up. I am not flipping to active-active in the middle of the incident. Brownout gets shed-first, not automatic promote.
 
 ### Staff depth: operate the topology you chose
 
 Day 43 picked the cost. Day 80 spends it under fire. Numbers, authority, fence.
 
 **What staff sounds like.** RPO in lost acks. RTO in create minutes. One primary. Fence.
+
+### More probes, with the answer
+
+**"What pages?"** Writer-region probe fail and create SLO fast burn during RTO — not only "region latency high." **"What do you refuse?"** Dual writers mid-incident; DNS-only failover; unfenced heal; calling lost 201s eventual. **"What is the sensitive assumption?"** Cross-region lag and drill time — 5 s lag at peak is ~1,750 lost acks; undrilled promote turns 5-minute RTO into an hour. **"Where does the time go?"** Lock RPO/RTO numbers and the single writer before debating active-active.
 
 ## Runbook card (yes, in the interview)
 
@@ -192,6 +210,15 @@ RTO is the clock from step 1 to step 6, not the time until a slide deck exists.
 ### Brownout vs dark
 
 If US is 50% failing, automatic promote can split traffic wrongly. Prefer: shed US creates first (degrade), human confirms dark, then promote. Brownout mis-detected as dark is how you get two writers briefly — fence discipline still matters.
+
+### Failure at grading altitude
+
+| Situation | Wrong answer | Staff answer |
+|---|---|---|
+| US dark, EU lagging 5 s | "No data loss, we have a replica" | ~1,750 peak creates may 404 — that is RPO |
+| Promote without fence | "US will just be a read replica" | Fence epoch or old primary accepts writes on heal |
+| DNS flipped, pools sticky | "RTO done" | Pull origin/anycast; probe create+GET |
+| Want zero loss + zero downtime | "Multi-region HA" | Sync cost + coupled failure, or admit the trade |
 
 ### Interviewer pushes
 

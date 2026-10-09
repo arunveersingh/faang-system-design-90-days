@@ -67,6 +67,8 @@ Speak in ratios when dollars are unknown:
 
 You do not need exact dollars. You need **which invoice** and **which miss**.
 
+**Staff arithmetic: ratios beat fake dollars.** If cross-region roughly doubles storage+pipe for DR, cutting it is often the only lever that can approach "half the infra bill" without touching create honesty. Cutting retention 7→3d is ~**half body storage**, not half the company invoice — say which line moves. Cutting app headroom 3×→1.5× saves idle compute and **buys earlier 503s** at day-24 10×; couple it to an explicit SLO loosen (99.9%→99.5%) or admit more burn risk. "Optimize the handler" rarely lands 2× when egress and HA idle dominate.
+
 ## API and data
 
 Cost cuts rarely change public API. They change **SLOs, TTLs, retention headers, and error rates under peak**. If you cut retention, `Expires` / product copy must change. If you cut region, status page and RPO docs change.
@@ -146,6 +148,14 @@ Caption: "Speak the risk to the user story, not only to the invoice."
 
 **After headroom cut.** Spike week: more save failures; SLO misses; angry creators.
 
+**Same SLO poster after cutting headroom.** Creates fail more; marketing still says three nines. That is a honesty failure, not a finance win.
+
+**Single-AZ "savings" during the next AZ outage.** Creates and origin reads die together; you still owed HA. The miss is total product death for the AZ event you claimed to survive.
+
+**Silenced broken-ack metrics to save the observability bill.** Lying 201s ship quietly; day 81 goes blind on the correctness page that mattered most.
+
+**CDN off to "save egress."** Origin serves every public read; egress often rises; latency worsens. Backwards cut for a public pastebin.
+
 ## Trade-offs
 
 **Save region money vs enterprise "multi-region" checkbox.** Marketing vs engineering honesty.
@@ -154,6 +164,8 @@ Caption: "Speak the risk to the user story, not only to the invoice."
 
 **Shorter retention vs growth of storage.** Product must own the breakage.
 
+**Name the refusal inside each alternative.** Against single-AZ primary: you refuse dropping HA while keeping the poster. Against memory-only 201s: you refuse fake durability. Against silencing broken-ack metrics: you refuse cheap blindness. Against same nines after cutting headroom: you refuse a dishonest poster. Against turning CDN off for public pastes: you refuse a cut that often raises origin egress.
+
 ## Talking points
 
 **If they cut AZ replica first.** "That is not a save; that is dropping HA while keeping the poster."
@@ -161,6 +173,12 @@ Caption: "Speak the risk to the user story, not only to the invoice."
 **If they say optimize code.** "Show the line item. Usually egress, storage, and idle HA dominate, not a for-loop."
 
 **If they keep the same SLO after cutting headroom.** "Then we are lying on the poster. Change the SLO or keep the capacity."
+
+**If they cut observability first.** "Keep create SLI and broken-ack at full fidelity. Sample the chatty stuff, not the correctness pages."
+
+**If they want spot for the metadata primary.** "Sudden primary loss is not a savings story for the source of truth. Refuse."
+
+**If finance wants half without product changes.** "Then the lever is duplicated DR (cross-region), not inventing free reliability. Speak the worse RPO/RTO."
 
 ## Say this in the room
 
@@ -171,6 +189,10 @@ I cut cross-region first if we must land near half on infrastructure that was du
 If the cut cannot hurt a user, it was not buying safety. Name the hurt.
 
 **What staff sounds like.** First cut, first risk, refused cut, SLO honesty.
+
+### More probes, with the answer
+
+**"What pages after the cut?"** Same create burn and broken-ack — plus DR restore tests if you dropped cross-region. **"What do you refuse?"** Single-AZ while claiming HA; fake 201; silencing integrity metrics; same nines after less headroom. **"What is the sensitive assumption?"** Which line item actually dominates — if egress is 70% of bill, retention cuts will not land 2×. **"Where does the time go?"** Ordered cuts with a user miss each; refuse list before debating micro-optimizations.
 
 ## Rough monthly driver story (order of magnitude)
 
@@ -192,6 +214,24 @@ So "optimize the handler" rarely lands 2×. Cutting region and retention does.
 | Cut headroom 3×→1.5× | Expect more 503 at peak; maybe 99.9%→99.5% if product agrees |
 | Retention 7→3d | Old links die — product changelog |
 | Sample logs 100%→1% | Keep broken-ack at 100% |
+
+### Cut card (draw this)
+
+| Cut | Approx save shape | User-visible risk | SLO / promise change |
+|---|---|---|---|
+| Drop cross-region | Large fraction of duplicated store+pipe | Region disaster → hours+ RPO/RTO | Rewrite DR story |
+| Retention 7→3d | ~half body storage | Old links 404 | Product changelog |
+| Headroom 3×→1.5× | Idle app/DB | Earlier 503 on spikes | Maybe 99.9%→99.5% |
+| Sample logs | Observability invoice | Slower 3 a.m. | Keep broken-ack 100% |
+| Single-AZ primary | Looks cheap | AZ outage = total death | **Refuse** |
+
+### Failure at grading altitude
+
+| Ask | Wrong answer | Staff answer |
+|---|---|---|
+| Cut 2× | "Optimize code / use spot everywhere" | Ordered infra cuts with named misses |
+| Keep HA poster, drop AZ replica | "Still have backups" | You dropped HA; say so or refuse |
+| Same 99.9% after half headroom | "We will try harder" | Loosen SLO or keep capacity |
 
 ### Interviewer pushes
 
