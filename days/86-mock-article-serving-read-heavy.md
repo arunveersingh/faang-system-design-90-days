@@ -153,6 +153,8 @@ Peak egress if uncached: 2k/s × 50 KB ≈ **100 MB/s** origin — ugly. With **
 
 10× peak reads (20k/s) breaks origin-on-miss without a wider edge; 10× publish may break a naive "purge all POPs synchronously on the request path."
 
+**Staff arithmetic: hit ratio is the origin budget.** Origin load is peak × (1 − hit ratio): 2,000/s at 95% ⇒ **100/s**; at 99% ⇒ **20/s**. That is why the edge, not the database, is the read design. **Purge fan-out:** 20 publishes/s peak × ~200 edge locations ⇒ **~4,000 purge operations/s** if every purge touches every location synchronously — it belongs on an async bus, never on the author's request path. **Versioned pointer alternative:** cache the body forever under `article:{id}:v{rev}` and give only the tiny `id → rev` pointer a **5 s** edge TTL. A hot article then costs ~200 locations ÷ 5 s ≈ **40 pointer revalidations/s** — small bytes — and the stale bound is about 5 s plus propagation, with no purge bus at all. **Stampede:** at 400/s on one key and a 50 ms origin read, a synchronized expiry lets **~20 concurrent misses per location** through without coalescing; with singleflight it is one.
+
 ### API and data
 
 - `GET /v1/articles/{id}` → body + `revision`
@@ -182,6 +184,38 @@ Peak egress if uncached: 2k/s × 50 KB ≈ **100 MB/s** origin — ugly. With **
 | Reader (miss, cold) | 5xx / retry | Unaffected if origin up |
 | Author | Publish 5xx | Publish may 200 while readers stay stale — **broken promise**; prefer fail publish or mark `freshness_degraded` and page |
 | Operator | Page origin errors + read miss rate | Page purge failure rate and stale-age histogram |
+
+### Deep dive: the purge race that pins the old body
+
+The quiet bug in purge-on-publish is ordering. Publish commits revision N+1 on the primary and fires the purge. The edge drops the object, the next reader misses, and origin reads from a **replica that has not yet applied N+1**. The edge now caches the *old* body as if it were fresh, for the full TTL. The purge "worked," and readers are stale for minutes.
+
+Three defensible fixes, each with a cost:
+
+- **Purge carries the revision.** Origin serves a purge-triggered refill from the primary (or waits until a replica reaches `rev ≥ N+1`). Cost: primary reads on every post-publish miss, and those are bounded by publish rate, not read rate.
+- **Versioned keys.** The body key includes the revision, so an old body can never be cached under the new name. Only the pointer can be stale, and it has its own short TTL. Cost: pointer management and one more lookup on a cold miss.
+- **Edge rejects a regressing revision.** Store the revision as `ETag`; a refill with a lower revision than the one being purged is not cached. Cost: edge logic that not every CDN offers.
+
+Say which one you picked and what it does not solve. Versioned keys still leave open tabs showing the old HTML until refresh. That is a stale window you name, not a bug you hide.
+
+### The author is not a reader
+
+Authors need **read-your-writes**: after `PUT` returns revision N+1, the author's preview must show N+1 now, not in 30 s. Route authenticated or preview GETs around the shared cache (`Cache-Control: private, no-store`, read from the primary) and keep public GETs anonymous and cacheable. This also refuses a correctness and privacy bug: a public cache key must never vary on cookies or auth. If it does, one user's response becomes another user's page.
+
+### Slug versus id
+
+Cache bodies by immutable `article_id`. Resolve `slug → id` as its own small cached mapping. A slug rename answers `301` to the new slug and keeps the id, so the body cache is untouched. If you key bodies by slug, a rename becomes an invalidation problem you did not need.
+
+### Wrong answers that cap the score
+
+**"TTL 5 minutes, done."** You accepted five minutes of wrong body after every publish. That is a fine answer only if you say the number out loud and the product agrees.
+
+**Purge on the author's request path across every location.** Publish latency becomes the slowest location's purge, and one bad location fails the author's save.
+
+**Hot article fixed with a bigger primary.** 400/s × 50 KB is 20 MB/s on one row. The fix is edge, shield, and coalescing, not RAM.
+
+**Personalized public GET.** Varying the cached response on cookies collapses the hit ratio, or leaks a page across users.
+
+**News-feed fan-out drawn for an article page.** A different product. Rubric Design stays a 2.
 
 ### Diagrams
 
@@ -219,6 +253,8 @@ Caption: "Hot path is edge. Correctness path is revision + invalidate."
 
 **Inline body vs object storage.** One read vs two; at 50 KB inline is fine; at multi-MB move bytes out.
 
+**Name the refusal inside each alternative.** With purge you refuse unbounded staleness and accept purge fan-out cost. With versioned keys you refuse purge infrastructure and accept pointer staleness plus open-tab staleness. With TTL alone you refuse all invalidation work and accept the TTL as your stale bound. With a tiered shield you refuse origin melt on a cold hot key and accept one more hop on a miss.
+
 ### Say this in the room
 
 Article serving is a read-heavy path: peak thousands of GETs per second, one article can be hundreds per second alone, so public bodies live at the edge with coalesced origin misses. Publish writes a new revision on the primary and either purges by article id or bumps a versioned cache key so the stale window is bounded — I will not pretend a five-minute TTL is invalidation. If purge is down I will not silently ack a breaking update as globally fresh; I page on stale-age and purge failures. Hot keys get soft TTL and singleflight, not a hotter SQL primary.
@@ -228,6 +264,27 @@ Article serving is a read-heavy path: peak thousands of GETs per second, one art
 Staff credit is the **publish → reader freshness** sentence with a number, and a hot-key plan that is not "more RAM." Unbounded stale after a successful publish is the honesty fail.
 
 **What staff sounds like.** Revision. Edge hit ratio. Stale bound. Singleflight. Page on purge fail.
+
+### Talking points (when the interviewer pushes)
+
+**"A publish went out and readers still see the old body after ten minutes."** "Either purge failed or a replica-lagged refill re-cached the old body. I check the stale-age metric per article, then the purge failure rate. The fix is revision-carrying purge or versioned keys, not a shorter TTL everywhere."
+
+**"Breaking news needs five seconds, not thirty."** "Offer a breaking class: pointer TTL 5 s, or purge with priority on the bus. I won't drop every article's TTL to 5 s, because the hit ratio, and so origin load, pays for it."
+
+**"The origin is down."** "Edge keeps serving cached bodies with stale-if-error. Cold misses fail. Publish fails loudly to the author. I page on origin errors and on the miss-path error rate."
+
+### More probes, with the answer
+
+**"What pages?"** Stale-age p99 against the promised window, purge failure rate, origin 5xx on misses, edge hit ratio dropping below the level that keeps origin under budget. Not CPU alone. **"What do you refuse?"** Personalized public GETs, synchronous global purge on publish, TTL called invalidation, a hotter primary as the hot-key plan. **"What is the sensitive assumption?"** Hit ratio. Going from 99% to 90% multiplies origin load by ten without any change in traffic. **"Where does the time go?"** Lock read path and publish path with a stale number by minute 28. Leave five minutes for origin down and purge down.
+
+### Failure at grading altitude
+
+| Fault | Wrong answer | Staff answer |
+|---|---|---|
+| Purge bus down | Author gets 200, readers stale indefinitely | Mark freshness degraded, page on stale-age, or fail breaking publishes loudly |
+| Replica lag on refill | "Purge worked" | Revision-carrying refill or versioned key; regressing revision not cached |
+| Hot key expires | All readers hit origin at once | Shield plus singleflight plus stale-while-revalidate |
+| Origin down | Site down | Stale-if-error from edge; cold misses fail; publish fails loudly |
 
 ### After you read this
 

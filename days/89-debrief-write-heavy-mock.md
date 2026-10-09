@@ -137,6 +137,37 @@ Suppose your day-88 page said "Kafka, exactly once" and returned 200 at the inta
 - "Every retry carries the same player_id; reconnect never clones a seat."
 - "Presence without a heartbeat for thirty seconds is a leave the room can see."
 
+## Re-score calibration: what evidence can move a day-88 score
+
+| Move | Legitimate if your page shows | Not legitimate |
+|---|---|---|
+| API and data 2 → 3 | A dedupe key with both parts named, plus `event_time` | "I meant producer_id plus event_id" |
+| Design 3 → 2 | Success returned before anything durable, with no named loss | — |
+| Failure 3 → 4 | One crash point walked with its residual duplicate or loss | A crash walk you can only do now |
+| Estimates 2 → 3 | Peak events/s × bytes with units, and a dedupe retention | "Big data volume" |
+
+## Questions that transfer to any realtime problem
+
+These are the questions behind days 86 and 88, without the answers for tomorrow. Before you draw boxes on day 90, you should be able to answer each one for that problem.
+
+1. **What does success mean?** Which state change must have landed before the user sees "done"?
+2. **What is the stale bound?** When the truth changes, how long can a user see the old truth? Give a number.
+3. **What does a retry do?** Which key makes the second attempt land on the same result?
+4. **Who owns the truth, and what happens when the owner dies?** What does the user see in that window?
+
+Your one rule for day 90 is usually the answer to whichever question your logs show you skip.
+
+## Interviewer follow-ups for your weakest dimension
+
+60 seconds each, aloud, for your weakest row only.
+
+| Weakest | Follow-up to answer aloud |
+|---|---|
+| API and data | "A producer retries after a timeout. Show me exactly how you avoid a second fact." |
+| Design | "When do you send the 200, and what exists on disk at that moment?" |
+| Deep dive | "You crash between the append and the dedupe write. What happens on the retry?" |
+| Failure and ops | "The sink is slow, not down. What do producers see in the first minute? The tenth?" |
+
 ## After you read this
 
 Do not reopen day 88's reference to polish scores. Day 90 is closed book (kit card or lobby fallback).

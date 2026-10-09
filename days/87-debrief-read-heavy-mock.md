@@ -127,6 +127,32 @@ Suppose your day-86 page had CDN boxes and "TTL 5 minutes" with no publish sente
 
 That paragraph is what goes in the log under the rewrite. Do not copy it if your gap was different.
 
+## Re-score calibration: what evidence can move a day-86 score
+
+A re-score changes only when you find a phrase you **already wrote** that you under-credited, or a claim the page does not support. Typical honest moves:
+
+| Move | Legitimate if your page shows | Not legitimate |
+|---|---|---|
+| Estimates 2 → 3 | Peak reads, body size, and a hot share with units | You now remember what the numbers should have been |
+| Design 3 → 2 | Publish never touches the cache on your page | — (downgrades need no new evidence, only honesty) |
+| Failure 2 → 3 | A line saying what readers see when origin or purge is down | "I was going to say stale-if-error" |
+| Deep dive 3 → 4 | A number or a concrete fault, and what it did not fix | A longer explanation written today |
+
+Downgrades are common on debrief day and are a good sign. They mean the anchors are working.
+
+## Interviewer follow-ups for your weakest dimension
+
+Pick the row that matches your weakest dimension. Set a 60-second timer and answer aloud as if the interviewer just asked. If you stall, that is the sentence to put in the rewrite.
+
+| Weakest | Follow-up to answer aloud |
+|---|---|
+| Requirements | "What did you decide not to build, and why does that change your design?" |
+| Estimates | "How many reads hit your origin at peak, and what assumption moves that most?" |
+| API and data | "What exactly is your cache key, and what changes it?" |
+| Design | "I just published. Walk me through what the next reader sees, and when." |
+| Deep dive | "Pick the riskiest part. What breaks first at 10×?" |
+| Failure and ops | "Your invalidation path is down. What does the author see? The reader? Who gets paged?" |
+
 ## What you refuse on a debrief day
 
 - Opening the day-86 reference to "check" before re-scoring.

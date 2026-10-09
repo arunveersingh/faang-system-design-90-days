@@ -153,6 +153,8 @@ Peak ingest bytes: 200k/s × 512 B ≈ **100 MB/s**. Partition the log. Dedupe s
 
 10× peak (2M/s) breaks a single partition and a single dedupe box — shard ingest and dedupe.
 
+**Staff arithmetic: partitions, storage, dedupe memory.** Peak 100 MB/s. If one log partition comfortably takes ~10 MB/s of replicated writes, you need **≥ 10**. Plan **32–48** for headroom and rebalancing, and say that the per-partition number is an assumption you would measure. Storage: 50k/s × 512 B × 86,400 s ≈ **2.2 TB/day** raw, ×3 replicas ≈ **6.6 TB/day**, so 7-day retention is about **46 TB** — retention is a cost lever you name. **Dedupe in two tiers:** retries cluster within minutes, so a **10-minute hot window** at peak is 200k/s × 600 s = **120M keys**, ~50 B each ≈ **6 GB** — in memory, sharded by producer. The full 24 h at average (~4.3B keys ≈ **216 GB**) does not belong in memory; a unique key at the sink catches the rare slow retry. **Batching:** producers sending 100 events per request turn 200k events/s into **~2k requests/s**, which changes the intake fleet size by two orders of magnitude.
+
 ### API and data
 
 - `POST /v1/events` headers: `Idempotency-Key` or body `(producer_id, event_id)`, `event_time`, payload
@@ -177,6 +179,39 @@ Peak ingest bytes: 200k/s × 512 B ≈ **100 MB/s**. Partition the log. Dedupe s
 | Producer | 503; must retry; no false 200 | Fail closed: 503 (risk double) **or** accept with higher double risk — prefer **fail closed** and page |
 | Downstream consumer | Lag freezes; read last durable | Unaffected if sink up |
 | Operator | Page sink write errors + producer 5xx | Page dedupe errors; watch duplicate apply rate |
+
+### Deep dive: the crash windows, in order
+
+Name the order of operations, then walk every crash point. This is the 4 on Failure.
+
+1. **Append, then crash before the dedupe inbox is written.** The producer never got an ack and retries. The inbox says "not seen," so a second append happens. Mitigation: the sink is unique on `(producer_id, event_id)`, so the second copy is absorbed downstream. Residual: the log briefly holds two copies, and consumers must tolerate that.
+2. **Inbox written first, then crash before append.** The retry sees "seen" and returns success for an event that was **never stored**. That is silent loss, which is worse than a duplicate. Refuse this order out loud: never record "seen" before the durable append.
+3. **Durable append and inbox both done, ack lost on the network.** The retry hits the inbox and gets the **original response replayed** (same offset, same status). Prefer an idempotent replay over a bare `409`, so producers do not need special-case logic.
+4. **Inbox entry evicted (TTL or memory pressure), then a slow retry.** Only the sink's unique key stands between you and a double fact. Say the window: retries older than the hot tier rely on the sink.
+
+### Clocks lie in both directions
+
+Late is measured as ingest wall clock minus `event_time`, so you depend on the producer's clock. **Late past 15 minutes** follows your policy (flag or reject). **Future skew** (event_time more than ~5 minutes ahead of ingest) is a broken producer clock, not an early event. Flag it `clock_skew` and do not let it advance downstream watermarks, or one bad phone closes everyone's time window early.
+
+### Batches fail partially
+
+A batch of 100 where 3 events fail validation should not reject the 97. Return **per-event status** in the response. A retry of the whole batch is safe because every event carries its own key.
+
+### Ordering you promise, and ordering you refuse
+
+Order is per partition, so per producer if you key by `producer_id`. Global order across producers is refused: it needs a single partition, and one partition cannot take 100 MB/s at peak, let alone 10×. One noisy producer can hot-spot its partition. Use a per-producer rate limit, or salt that producer's key and give up its ordering. Say which.
+
+### Wrong answers that cap the score
+
+**"Kafka gives exactly once."** Broker transactions do not make an arbitrary downstream side effect happen once. Without a key and an idempotent sink, that is a slogan.
+
+**Unbounded in-memory buffer at intake.** You turned backpressure into an out-of-memory crash, and lost everything in the buffer.
+
+**Dedupe by payload hash.** Two distinct events with identical bodies (two identical clicks) collapse into one. The producer's `event_id` is the identity.
+
+**Late events silently dropped.** The offline mobile producer's whole session vanishes. That is data loss with no metric.
+
+**Metrics dashboard as the design.** Day 62 is a different product. The intake path is the hour.
 
 ### Diagrams
 
@@ -219,6 +254,8 @@ Caption: "Late is a policy, not a shrug."
 
 **Dedupe at intake vs at sink consumer.** Earlier save of sink volume vs longer duplicate window on the log.
 
+**Name the refusal inside each alternative.** Ack after durable refuses silent loss and accepts producer latency. A fast 202 before durable refuses latency and accepts a loss window you must name. Rejecting late events refuses watermark complexity and accepts losing offline producers' data. Accepting with a late flag refuses loss and accepts a correction path downstream. A per-producer partition key refuses cross-producer ordering and accepts hot-producer risk.
+
 ### Say this in the room
 
 Event intake is write-heavy: hundreds of thousands of events per second at peak, at-least-once on the wire, so every accepted event is keyed by `(producer_id, event_id)` and the durable sink upserts on that key before I ack. Late means event_time skew past fifteen minutes — I either reject or land with a late flag; I do not vanish the event. If the sink is down producers get 503 and retry; if dedupe is down I fail closed rather than silently double-apply. Consumers still need their own idempotency because delivery to them is at-least-once too.
@@ -228,6 +265,27 @@ Event intake is write-heavy: hundreds of thousands of events per second at peak,
 Staff credit is **ack semantics**, **dedupe retention**, and a **late policy with a number**. "Kafka" without those three is a brand tour.
 
 **What staff sounds like.** Idempotency key. Ack after durable. Late threshold. Backpressure. Duplicate crash window.
+
+### Talking points (when the interviewer pushes)
+
+**"Make it exactly once."** "On the wire it is at-least-once. Effectively-once is the producer key plus a sink unique on that key, plus idempotent consumers. I'll show the crash window where a duplicate still sits in the log."
+
+**"The sink is slow, not down."** "Log lag grows. Past the lag SLO intake returns 429 with Retry-After and jitter. Producers keep a bounded local buffer, and I name what a full producer buffer drops."
+
+**"A producer's clock is a day behind."** "Every event looks late. Flag it, count by producer, and alert that producer's owner. Don't let it poison watermarks."
+
+### More probes, with the answer
+
+**"What pages?"** Durable append error rate, end-to-end lag against the SLO, the 429 rate by producer, the duplicate-absorbed count at the sink (a jump means the dedupe tier is failing). **"What do you refuse?"** Ack before durable, recording "seen" before append, global ordering, payload-hash dedupe. **"What is the sensitive assumption?"** The retry distribution. If retries arrive hours later, the hot dedupe tier misses and the sink key carries everything. **"Where does the time go?"** Lock the ack, key, and late policy by minute 20. Then the crash windows. The brand is not the design.
+
+### Failure at grading altitude
+
+| Fault | Wrong answer | Staff answer |
+|---|---|---|
+| Crash after append, before inbox | "Rare" | Retry absorbed by sink unique key; duplicate visible in the log only |
+| Inbox written before append | Not noticed | Refused ordering: it turns a crash into silent loss |
+| Sink down | Buffer in memory, 200 | 503, producers retry, page on append errors |
+| Dedupe tier down | Accept everything silently | Fail closed, or accept and lean on the sink key while counting absorbed duplicates |
 
 ### After you read this
 
