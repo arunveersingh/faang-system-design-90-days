@@ -54,7 +54,7 @@ days/            one file per day; Phases 1–5 are days 01–84
 prompts/         problem bank (folder name stays `prompts/`; pastebin is day 7; image upload is day 28; warehouse inventory is day 49; job scheduler is day 63; email inbox is day 77)
 design-log/      template only; real notes stay private and are not pushed
 stencils/        the six diagram types, blank
-appendices/      open; company-quirk and paper pointers, not numbered days
+appendices/      optional notes after day 90: company quirks, Dynamo, Spanner, Raft
 CURRICULUM.md    the 90-day map
 PROPOSAL.md      the brief this repo is built from
 START.md         book homepage

@@ -2,24 +2,24 @@
 
 > **This is the map, not today's lesson.** Days 1–90 are written. Start at [Day 1](days/01-what-the-interview-is-grading.md).
 
-Interview-depth system design for senior and staff loops. One day, one sitting. Pure distributed systems: no AI or ML lessons.
+Interview-depth system design for senior and staff interviews. One day, one sitting. Pure distributed systems: no AI or ML lessons.
 
 This file is the 90-day assignment list, adapted from the course topic list for this repo. **Phases 1–6 (days 1–90) are written** under `days/`.
 
 Problem pages under [`prompts/`](prompts/README.md) are the problem bank. The folder is still named `prompts/`. If a problem file is updated, **the problem file wins** over a title here. Read the problem page on this site before a mock.
 
-Appendices at the bottom are **open**: optional, not part of the 90 days, and not a substitute for a mock. The notes here are the whole appendix until a loop is actually on the calendar. Pointers: [`appendices/README.md`](appendices/README.md).
+Appendices at the bottom are **open**: optional, not part of the 90 days, and not a substitute for a mock. Full notes: [`appendices/README.md`](appendices/README.md). Open only when an interview is on the calendar.
 
 How to run a day: [`README.md`](README.md). Diagram blanks: [`stencils/README.md`](stencils/README.md). Log: [`design-log/TEMPLATE.md`](design-log/TEMPLATE.md).
 
 ---
 
 
-Interview-depth system design for senior and staff loops. One day, one sitting, one artifact trail in a design log. Pure distributed systems: no AI or ML lessons.
+Interview-depth system design for senior and staff interviews. One day, one sitting, one artifact trail in a design log. Pure distributed systems: no AI or ML lessons.
 
-- Audience is engineers with 10+ years of experience, targeting senior and staff loops up to about 20 years of depth, not new grads.
+- Audience is engineers with 10+ years of experience, targeting senior and staff interviews up to about 20 years of depth, not new grads.
 - Self-paced on GitHub, 30–40 minutes a day, text and diagrams in v1. Video may come later and is not required. No live cohort.
-- One shared method for every company loop. Depth stays something you can say on a whiteboard. Company quirks and classic papers are optional appendices after day 90, not extra days.
+- One shared method for every company interview. Depth stays something you can say on a whiteboard. Company quirks and classic papers are optional appendices after day 90, not extra days.
 - No certificate. The design log is the artifact. Problem pages are kept current by Arunveer and team. The kit is a separate product and is not required to start.
 
 Days 1–6 teach the method on a pastebin. That pastebin is the closed-book problem on day 7 only, because the lesson topics that week are the method steps, not a second product. From day 28 on, a mock problem is never that week's lesson topic.
@@ -164,13 +164,13 @@ Three full interviews: read-heavy, write-heavy, realtime. Debriefs are their own
 
 ## Optional appendices
 
-Not part of the 90 days. Do not swap one in for a mock. Each is a single sitting under 40 minutes, or skip it until a loop is actually on the calendar.
+Not part of the 90 days. Do not swap one in for a mock. Each is a single sitting under 40 minutes, or skip it until an interview is on the calendar. Full notes live under [`appendices/`](appendices/README.md).
 
 ### Company quirk appendix
 
-One method everywhere: requirements, estimates, API and data, design, deep dive, failure. Use this only to bias the hour.
+One method everywhere: requirements, estimates, API and data, design, deep dive, failure. Use this only to bias the hour. Full note: [`appendices/company-quirks.md`](appendices/company-quirks.md).
 
-| Loop | Thin bias |
+| Interview | Thin bias |
 |---|---|
 | Google | More time on the estimate, the data model, and naming the consistency guarantee. Non-goals are expected to be explicit. |
 | Meta | The problem stays ambiguous longer. Fan-out, what the user waits for, and what can be async show up early. |
@@ -183,11 +183,11 @@ If the problem bank adds a company card later, that card wins over this table.
 
 ### Classic papers appendix
 
-Recommend, not required. Take only what you can use in an answer. Do not summarize the paper in the room.
+Recommend, not required. Take only what you can use in an answer. Do not summarize the paper in the room. Hub: [`appendices/classic-papers.md`](appendices/classic-papers.md).
 
-- **Dynamo.** Useful for consistent hashing, hinted handoff, sloppy quorum, and a failure model where nodes are wrong or gone. Conflict handling stays application-specific. Do not cite the paper as permission to skip a consistency choice.
-- **Spanner.** Useful for the idea of external consistency and for why a global transaction is expensive. TrueTime is a dependency you do not invent on a whiteboard. Say when you would refuse a cross-region transaction instead.
-- **Raft.** Useful so leader, log, and an election window are concrete when you call consensus a dependency. You are not there to derive the protocol or to propose building your own.
+- **[Dynamo](appendices/dynamo.md).** Useful for consistent hashing, hinted handoff, sloppy quorum, and a failure model where nodes are wrong or gone. Conflict handling stays application-specific. Do not cite the paper as permission to skip a consistency choice.
+- **[Spanner](appendices/spanner.md).** Useful for the idea of external consistency and for why a global transaction is expensive. TrueTime is a dependency you do not invent on a whiteboard. Say when you would refuse a cross-region transaction instead.
+- **[Raft](appendices/raft.md).** Useful so leader, log, and an election window are concrete when you call consensus a dependency. You are not there to derive the protocol or to propose building your own.
 
 ## How to use this on GitHub
 

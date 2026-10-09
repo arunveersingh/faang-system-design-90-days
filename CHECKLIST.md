@@ -128,3 +128,13 @@ Days 86, 88, and 90 are the mandatory log entries for Phase 6. Do not open a moc
 
 
 [Start](START.md) · [How to study](HOW-TO-STUDY.md) · [Curriculum (map)](CURRICULUM.md)
+
+## Appendices (optional, after day 90)
+
+Not part of the 90 days. Skip unless an interview is on the calendar.
+
+- [ ] [Company quirks](appendices/company-quirks.md)
+- [ ] [Dynamo](appendices/dynamo.md)
+- [ ] [Spanner](appendices/spanner.md)
+- [ ] [Raft](appendices/raft.md)
+

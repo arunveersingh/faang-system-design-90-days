@@ -1,24 +1,31 @@
-# Appendices (open)
+# Appendices (optional)
 
-Not part of the 90 days. Not a mock. Do not swap one in because a lesson feels unfinished.
+Not part of the 90 days. Not a mock. Do not swap one in because a lesson feels unfinished, and do not open one in the middle of a timed mock.
 
-Each note is a single sitting under 40 minutes, or skip it until a loop is on the calendar. The course method does not change: requirements, estimates, API and data, design, deep dive, failure.
+Each note is a single sitting under 40 minutes, or skip it until an interview is on the calendar. The course method does not change: requirements, estimates, API and data, design, deep dive, failure.
 
-The short text that exists today lives in [CURRICULUM.md](../CURRICULUM.md) under "Optional appendices." This folder is the pointer. It is not a second copy, so the two cannot drift.
+## Notes
 
-## Company quirks
+| Note | When to open |
+|---|---|
+| [Company quirks](company-quirks.md) | A real interview at Google, Meta, Amazon, Apple, Netflix, or Microsoft is on the calendar. Bias the hour; do not invent a second method. |
+| [Classic papers](classic-papers.md) | Hub for the three paper notes. Pick one. |
+| [Dynamo](dynamo.md) | You need leaderless vocabulary: hashing, N/R/W, sloppy quorum, hinted handoff, conflicts. |
+| [Spanner](spanner.md) | You need external consistency and why a global transaction is expensive. |
+| [Raft](raft.md) | You need leader / log / election window without deriving the protocol. |
 
-One method for every company. The quirk note only biases where you spend the hour (estimate and consistency, fan-out, operational ownership, privacy, a dead region, tenancy).
+The short map in [CURRICULUM.md](../CURRICULUM.md) under "Optional appendices" points here. These pages are the full notes.
 
-- Status: open stub. Read the table in the curriculum. If a company card is ever added under `prompts/`, that card wins over the table.
-- Do not turn the appendix into a second course, and do not open it in the middle of a timed mock.
+## Rules
 
-## Classic papers
+- Recommend, not required.
+- Take only what you can use in an answer.
+- Do not summarize a paper in the room.
+- Do not cite Dynamo as permission to skip a consistency choice.
+- Do not invent TrueTime or implement Raft on the whiteboard.
+- Say **problem** and **interview**, not AI jargon.
+- No AI or ML papers belong here.
 
-Recommend, not required. Take only what you can use in an answer. Do not summarize the paper in the room.
+## After day 90
 
-- **Dynamo.** Consistent hashing, hinted handoff, sloppy quorum, nodes that are wrong or gone. Not permission to skip a consistency choice.
-- **Spanner.** External consistency, and why a global transaction is expensive. TrueTime is a dependency you do not invent on a whiteboard.
-- **Raft.** Leader, log, and an election window, so "consensus" is a dependency with an unavailable window. You are not there to derive the protocol.
-
-Status: open stub. The paragraphs in the curriculum are enough until someone writes a single sitting that still fits in 40 minutes. No AI or ML papers belong here.
+Finish the numbered days first. Appendices are enrichment for a calendar invite, not a Phase 7.

@@ -25,3 +25,5 @@ The log is yours. The [template](design-log/TEMPLATE.md) is only a shape. Copy i
 Whiteboard figures are SVG on days 1–3 and 8–10, with the other diagrams, after the attempt line. The picture is not the opener. The other days use mermaid you can redraw. Search sits in the corner of the book.
 
 The interview kit is sold separately. It is not required to start, and it is not part of this book. [Day 85](days/85-kit-hookup-and-the-design-log.md) shows how it attaches; [day 90](days/90-mock-realtime-lobby-kit-run.md) can run on the lobby fallback without it.
+
+Optional after day 90: [appendices](appendices/README.md) (company quirks, Dynamo / Spanner / Raft). Not a substitute for a mock.
