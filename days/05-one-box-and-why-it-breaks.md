@@ -127,7 +127,7 @@ Expiry does not need a flag. The read already checks `expires_at`. The sweeper, 
 
 A process restart drops in-flight creates. There is no drain. Clients retry; because create is not idempotent, a retry after a lost response may mint a second paste. You already said that in the API. Do not "fix" it with a queue on this day.
 
-Disk full: creates fail, reads of existing pastes still work, until the disk error takes the volume with it. Alarm on free space. Provisioning choice, said in the open: size for the **4.5 TB** mix with headroom (on the order of 2×, named as headroom for mix drift, not as a silent factor on QPS), and alarm when the share of 365-day pastes leaves the mix you assumed. The allow-list worst case is 36.5 TB. You are choosing not to buy that disk on day one. Say so.
+Disk full: creates fail, reads of existing pastes still work, until the disk error takes the volume with it. Alarm on free space. Say the provisioning choice out loud. Size for the **4.5 TB** mix with about 2× headroom, and call it headroom for mix drift, not a silent factor on QPS. Alarm when the share of 365-day pastes leaves the mix you assumed. The allow-list worst case is 36.5 TB. You are choosing not to buy that disk on day one. Say so.
 
 Backup of hundreds of millions of small files is the operational cliff. A tool that walks inodes will not finish just because GET is fast. A streaming replica of Postgres is easy relative to a second copy of this directory. This is the heart of the split.
 
