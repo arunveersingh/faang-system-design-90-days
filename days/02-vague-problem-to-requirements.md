@@ -130,7 +130,13 @@ Say these before you draw. Each one is a different interview you just declined.
 
 Privacy in one line: the URL is the capability. You do not add a public ACL model. Anyone who has the URL can read until expiry or deletion. Say that so "private paste" does not sneak in as a second visibility flag you then have to enforce everywhere.
 
-A non-goal is not "never." It is "not in this hour, and here is what it would cost." Say the cost in one clause for the likely pushes: accounts put a login dependency in front of create; search needs a second index over untrusted text; multi-region needs an authoritative copy on delete. Under pressure, concede abuse limiting first: it sits in front of create and does not change the row. The one never to give up quietly is "private paste," because it needs an identity, which you refused.
+A non-goal is not "never." It is "not in this hour, and here is what it would cost." Give each likely push a one-clause cost:
+
+- Accounts put a login dependency in front of create.
+- Search needs a second index over untrusted text.
+- Multi-region needs an authoritative copy on delete.
+
+Under pressure, concede abuse limiting first: it sits in front of create and does not change the row. The one never to give up quietly is "private paste," because it needs an identity, which you refused.
 
 ## Design
 
