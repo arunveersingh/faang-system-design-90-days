@@ -290,7 +290,7 @@ Every failure overlay caption has three parts: what the creator sees, what the r
 **Why you still choose it when they say "just show me the whole thing."** The comprehensive diagram cannot show order. The ack, the 404 branch, and the delete order are all sequences, and they disappear in a topology. The single picture answers "what exists" and fails every "what happens when" question, which is what the interview is actually made of.
 
 
-**10× break.** The scale overlay is the break, and it stays an overlay: ~14 Gbit/s against one NIC, ~174k reads/s against one metadata primary, ~45 TB and billions of objects against the restore story you already told at 1×. If the 10× sketch replaces your whiteboard, you will be unable to answer a question about today's ack path, because the ack path is now smeared across tiers you added for a hypothetical. Keep both pictures.
+**10× break.** The scale overlay is the break, and it stays an overlay: ~14 Gbit/s against one NIC, ~174k reads/s against one metadata primary, ~45 TB and billions of objects against the restore story you already told at 1×. Let the 10× sketch replace your whiteboard and you can't answer a question about today's ack path, because the ack path is now smeared across tiers you added for a hypothetical. Keep both pictures.
 
 A second trade-off inside the failure overlay: **show total loss on one disk, rather than drawing a replica you will not have time to specify.** You give up the appearance of being production-ready. You gain an honest RPO: everything, if this disk is the only copy. The moment they ask you to fix it, you move to the durability overlay and talk about PUT-then-commit or a replica. You do not quietly add the replica to the failure picture and call the failure handled.
 
