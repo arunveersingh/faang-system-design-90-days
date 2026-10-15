@@ -114,7 +114,7 @@ The design a senior defends in week 1 is one service that stores metadata and by
 
 The graded move is the refusal. "I am not adding a CDN until egress says so. I am not adding a queue because the user is waiting for the write." That refusal is the design, at this altitude.
 
-A wrong refusal sounds like taste: "I like simple systems." A right refusal sounds like a unit: "I have not shown egress that needs an edge, and the create path has no work the user is willing to wait off-path for." If they push "but every production system has a cache," answer with the miss you have not designed yet and the stale read you would own on delete. You are not refusing caches forever. You are refusing to invent a problem the numbers have not asked.
+A wrong refusal sounds like taste: "I like simple systems." A right refusal sounds like a unit: "I have not shown egress that needs an edge, and nothing on the create path is slow enough to push off-path." Push back with "every production system has a cache"? Answer with the miss you have not designed yet and the stale read you would own on delete. You are not refusing caches forever. You are refusing to invent a problem the numbers have not asked.
 
 ## Diagrams
 
