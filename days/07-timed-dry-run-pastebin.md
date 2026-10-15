@@ -260,7 +260,7 @@ The anchor for a 4 is "the crash window you still have after the mitigation you 
 
 Disk dies on the one box: the creator and the reader both get 5xx, and every acknowledged paste is gone if that disk was the only copy. RPO is everything. Restoring 450 million small files is on the order of a day even if a copy exists. Page on disk errors, create error rate, and `body_missing`. Not on 404.
 
-Mitigation drawn: bodies move to object storage; the write becomes PUT, then commit the row, then 201. The window you still have: a PUT that succeeded with a row commit that failed leaves an orphan object. That is waste, not loss, and a reaper with a grace period handles it. What the mitigation does not solve: the metadata primary is still one host, so a dead primary means 503s until a replica is promoted, and with asynchronous replication, any commit that never reached the replica is a create whose 201 you can no longer honor. Saying that last sentence is what separates a 4 from a 3. A 3 names the fix. A 4 names what the fix left behind.
+Mitigation drawn: bodies move to object storage; the write becomes PUT, then commit the row, then 201. The window you still have: a PUT that succeeded with a row commit that failed leaves an orphan object. That is waste, not loss, and a reaper with a grace period handles it. What the mitigation does not solve: the metadata primary is still one host. A dead primary means 503s until you promote a replica. With asynchronous replication, any commit that never reached the replica is a create whose 201 you can no longer honor. Saying that last sentence is what separates a 4 from a 3. A 3 names the fix. A 4 names what the fix left behind.
 
 
 
