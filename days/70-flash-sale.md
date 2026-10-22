@@ -49,125 +49,187 @@ Write:
 
 ## Requirements
 
-**In.** Sale with **N** units (e.g. **10,000**). Start time known. Arrivals **100k–1M** concurrent. Waiting room. Tickets grant the right to attempt checkout for **T** minutes. Fairness policy stated.
+**In.** One item, **N = 10,000** units, start time known in advance. **100k–1M** shoppers arrive around the start. A waiting room in front of checkout. An admitted shopper gets a ticket: the right to try checkout once, within **T = 10 minutes**. Limit **one unit per account**. A fairness rule you can say in one sentence.
 
-**Assumptions.** Inventory conditional write ceiling ~**500**/s on one item (day 49) — arrivals exceed by 100×. One region + CDN for static.
+**Assumptions.** A conditional write on one inventory row tops out around **500/s** (Day 49). Arrivals beat that by 100× or more. One region, static pages on a CDN. Payment is the Day 69 checkout, unchanged.
 
-**Out.** Redesigning payments, dynamic pricing ML, multi-item carts deep dive.
+**Out.** Redesigning payments, dynamic pricing, multi-item carts, resale markets.
 
 ## Estimates
 
-1e6 arrivals at t0. Admit rate **200–500**/s to match reserve capacity (leave headroom). Drain time for 10k units at 300 successful checkouts/s ≈ **33 s** of winners — but many admits fail payment; admit more than N.
-
-Queue messages: 1e6 waits — durable counter + position approx OK.
+- **Join burst.** If 1M people press "join" within ~10 s of the start, the room takes **~100k joins/s**. That's fine, because a join never touches stock. Partition the room by user id and it scales sideways.
+- **Status polls.** 1M waiters polling every 5 s is **200k reads/s**. Don't answer each one from a database. Publish one number, "now admitting up to rank X," about once a second. The client computes its own position as `my_rank − X`. Every poll becomes a CDN cache hit on one tiny object.
+- **Admits needed.** Not everyone admitted buys. If **60%** of admitted shoppers finish payment inside T, selling 10k units needs about **10,000 / 0.6 ≈ 16.7k** admits.
+- **Admit rate.** Set **R ≈ 300/s**, well under the 500/s row ceiling, leaving room for retries and releases. 16.7k admits at 300/s takes **~56 s**. The scarce part of the sale is over in about a minute.
+- **Tail.** Unpaid holds expire after T, so a trickle of returned units comes back 10 minutes later. Plan a second, smaller admit wave, not a reopened floodgate.
 
 ## API and data
 
-`POST /v1/sales/{id}/join` → position / ticket state.
+- `POST /v1/sales/{id}/join` → `{rank, state}`. Idempotent per `(sale, user)`. Ten tabs get the same rank.
+- `GET /v1/sales/{id}/watermark` → `{admitted_up_to, sold_out}`. Cached at the CDN for ~1 s.
+- `POST /v1/sales/{id}/claim` with the ticket → returns a signed ticket once `rank ≤ admitted_up_to`.
+- `POST /v1/checkout` with the ticket → reserve, pay, commit (Day 69).
 
-`GET` poll or WS for ticket grant.
+**Ticket.** A signed token (HMAC or similar) holding `user`, `sale`, `rank`, `expires_at`. Checkout checks the signature without calling the room, so a room outage can't block shoppers already admitted.
 
-`POST` checkout with `ticket_id` (single use).
+**Hold row.** `(sale, user)` primary key, `state` (held, paid, expired), `expires_at`. The unique key gives you one unit per account and single use for free.
 
-Ticket row: user, sale, expires, state.
+**Stock row.** `remaining`. Decrement only with `UPDATE … SET remaining = remaining − 1 WHERE remaining > 0`.
 
 ## Design
 
 ### Layers
 
-1. CDN / edge: static sale page; bot rate limits; JS challenge optional.
-2. Waiting room service: join assigns lottery number or FIFO seq (FIFO hurts multi-tab; **lottery with one entry per user** is fairer under bots).
-3. Admits release tickets at rate R matching inventory+checkout capacity.
-4. Checkout path: validate ticket → reserve 1 → pay → commit (day 69). Ticket consumed.
+1. **Edge.** Serves the static sale page and the watermark. Applies per-IP and per-account rate limits plus bot checks.
+2. **Waiting room.** Assigns a rank on join. Holds no stock and never calls inventory.
+3. **Admission controller.** One small service that moves the watermark forward at rate R, and only while unheld stock remains.
+4. **Checkout.** Verify the ticket, insert the hold row, decrement stock, pay, mark paid (Day 69).
 
-### Fairness
+### Fairness: pick one rule and say its cost
 
-**Lottery:** everyone joining in window gets random rank; sort; admit in order. **FIFO:** first joins win — bots win. **Loyalty:** product bias — say if used. Pick **per-user lottery**.
+- **FIFO by join time.** Feels fair. Rewards whoever hits the button first, which usually means bots and people closest to the servers.
+- **Lottery.** Open a join window, say 15 minutes before the start. Everyone who joins in the window gets a random rank at the start. Late joiners line up FIFO behind the lottery block.
+- **Loyalty or member priority.** A product choice. If you use it, say so out loud.
 
-### Overshoot
+Pick the **per-account lottery with a pre-start window**. It also fixes the load problem: the join spike spreads over 15 minutes instead of landing in one second, because nobody gains by refreshing at the exact start.
 
-Admit rate > success rate because payment fail; stop admits when reserved+sold hits N; remaining waiters get "sold out."
+### The admission controller
+
+The controller reacts to live numbers. It never runs at a fixed rate.
+
+- Admit while `held + sold < N`. Stop the moment it equals N.
+- When a hold expires, it returns one unit and the controller admits one more rank.
+- If checkout latency or error rate climbs, slow R. The stock row is the bottleneck, so protect it first.
+- **Sold out** means `sold = N` and no live holds. Before that, waiters see "all units are held; you may still get one if a hold expires." That's honest, and it stops a stampede of refreshes.
+
+### Why sharding the stock counter is the wrong fix
+
+The tempting move: split 10,000 units into 10 shards of 1,000 so writes spread out.
+
+- **With a hard cap per shard,** you can't oversell. But traffic is never even. One shard sells out while others still have stock. Shoppers routed there see "sold out" while units sit unsold.
+- **Fixing that** means shards borrow from each other near the end. That's a coordination protocol on the hottest path of the sale.
+- **Without hard caps,** shards check a shared "remaining" that's stale by the time they write. That's where real oversell comes from.
+
+Admission control makes all of this unnecessary. R ≈ 300/s fits one row with headroom, so the answer is one counter, one row, bounded traffic.
+
+**Faster counter, new risk.** An in-memory atomic counter (one Redis key, for example) takes far more writes per second than a database row. If you use one, the database stays the source of truth. A failover can lose recent decrements, so reconcile counts against hold rows and cap oversell with a stop rule.
+
+### Bots and multi-tab
+
+- **One rank per account.** Join is idempotent, so extra tabs and devices change nothing.
+- **Tickets are bound to the account.** A ticket scraped or shared from another account fails the signature check.
+- **Raise the cost of fake accounts.** Account age, verified phone, or a past purchase as join conditions. These are product calls; name them, don't promise they stop every bot.
 
 ### Failure
 
-Waiting room down at t0: shed new joins with retry; do not open DB. Inventory still protected if checkout requires ticket signed by room.
+- **Room down at the start.** Shed new joins with `Retry-After`. Never open the stock path directly. Shoppers already holding signed tickets keep checking out.
+- **Controller down.** The watermark freezes. Nobody new gets in, and stock stays safe. Restart from durable state: watermark, held count, sold count.
+- **Checkout slow.** Holds pile up and expire, and units recycle. The controller sees the error rate and slows R.
+- **Clocks.** Ticket and hold expiry use server time with a small grace window, never the client's clock.
 
-### Staff arithmetic: admission before reserve
+### Worked numbers
 
-10k arrivals/s onto 500 units cannot each hit the stock row — you need a waiting room / ticket lottery in front so **reserve QPS** is bounded (e.g. hundreds/s) while **fairness** is named (FCFS tickets, random, or paid VIP — pick and say). Sharding the counter into 10 buckets of 50 oversells when each shard sells 50 independently under skew — refuse unless you accept oversell or use a single writer / lua / conditional with a global remaining. Overshoot: some oversell with compensation, or hard stop under remaining — product choice spoken.
+| Quantity | Value | Where it comes from |
+|---|---|---|
+| Stock N | 10,000 | Problem |
+| Join peak | ~100k/s | 1M joins in ~10 s |
+| Status reads | ~200k/s | 1M waiters, 5 s poll, all CDN hits |
+| Row ceiling | ~500/s | Day 49 |
+| Admit rate R | ~300/s | Ceiling minus headroom |
+| Payment success | 60% | Assumption; measure it |
+| Admits needed | ~16.7k | 10,000 / 0.6 |
+| First wave | ~56 s | 16.7k / 300 |
+| Second wave | after T = 10 min | Expired holds return units |
 
 ## Diagrams
 
 ```mermaid
 flowchart TB
-  crowd[Shoppers] --> edge[Edge limits]
-  edge --> room[Waiting room]
-  room --> tickets[Admit at rate R]
-  tickets --> checkout[Reserve + pay]
-  checkout --> inv[(Single item stock)]
+  crowd[Shoppers] --> edge[Edge: page, watermark, rate limits]
+  edge --> room[Waiting room: rank per account]
+  ctrl[Admission controller] -->|moves watermark at R| edge
+  room --> claim[Claim signed ticket]
+  claim --> checkout[Checkout: verify ticket, hold, pay]
+  checkout --> stock[(One stock row)]
+  checkout -->|held, sold, expired| ctrl
 ```
 
-Caption: "DB sees R, not the crowd. Tickets gate checkout."
+Caption: "The crowd hits the edge and the room. Only R per second reaches the stock row."
 
 ## Failure the user sees
 
-**Everyone hits inventory.** DB melts; most get 5xx; a few lucky oversell. Failure mode is chaos, not fairness.
+**Everyone hits inventory.** No room in front. The database melts, most shoppers get errors, and a few lucky requests slip through. That's chaos, not fairness.
 
-**Unfair bot win.** No tickets/rate limits; scrapers take stock. Waiting room + bot controls.
+**Bots win.** FIFO with no account limits. Scripts take the stock in the first second.
 
-**Shard oversell.** Ten shards × 50 = 500 planned; skew sells 80+80+… → oversell. User buys item you cannot ship → cancel/compensate.
+**Stranded stock.** Sharded counters with hard caps. A shopper sees "sold out" while another shard still holds units.
 
-**Ticket starvation.** Valid ticket but stock gone when they arrive — expected; clear UX. Ticket TTL short.
+**Oversell.** Uncapped shards, or an in-memory counter that lost decrements on failover. You sell items you can't ship, then cancel and apologize.
 
-**False "sold out" on blip.** 503 during admission ≠ sold out. Distinguish codes.
+**Ticket, then nothing.** A valid ticket arrives after the last hold is taken. Expected. Say so clearly, and keep the ticket TTL short.
+
+**Fake "sold out."** A 503 during the join spike shown as "sold out." Shoppers leave while stock remains.
 
 ## Trade-offs
 
-**Lottery vs FCFS queue.** Lottery resists bots at start; FCFS feels fairer. Pick.
+**Lottery vs FIFO.** Lottery resists bots and flattens the spike. FIFO feels fairer to people who showed up early. Pick one and say it.
 
-**Hard stop vs slight oversell.** Hard stop leaves leftover under contention; oversell needs cancel rate budget.
+**Hard stop vs small oversell.** A hard stop can leave a few units unsold while holds expire. Allowing oversell needs a cancellation budget and an apology flow.
 
-**Name the refusal inside each alternative.** Against open reserve at arrival QPS: you refuse melting the stock path. Against sharded counters without a global remaining: you refuse accidental oversell. Against 503 looking like sold out: you refuse lying scarcity. Against "first HTTP wins" without tickets: you refuse bot dominance dressed as fairness.
+**Short vs long ticket TTL.** Short TTL recycles stock faster but punishes slow payers. Long TTL is kinder and leaves stock locked longer.
 
-**10× arrivals.** Waiting room grows; reserve QPS cap stays. Stock correctness unchanged.
+**Name the refusal inside each alternative.** Against open checkout at arrival rate: you refuse melting the stock row. Against sharded counters: you refuse stranded stock or oversell. Against 503 shown as sold out: you refuse fake scarcity. Against "first request wins" with no tickets: you refuse handing the sale to bots and calling it fair.
+
+**10× arrivals.** The room and the edge grow. R stays the same. Stock correctness doesn't change at all.
 
 ## Talking points
 
-**If they shard the qty counter.** "Unless each shard has a split of remaining and you accept skew oversell, you will oversell. Prefer single remaining with admission in front."
+**If they shard the counter.** "Capped shards strand stock under skew, and uncapped shards oversell. I keep one row and bound the traffic instead."
 
-**If they ask fairness.** "Tickets: issued by lottery or queue order; redeem within TTL at bounded reserve QPS."
+**If they ask fairness.** "Per-account lottery over a pre-start window. It resists bots and spreads the join spike."
 
-**If they ask sold out vs error.** "Different codes. Retry-After for admission; 409/sold out for remaining=0."
+**If they ask position updates.** "One cached watermark. The client subtracts. No per-user reads."
 
-**If they ask bots.** "Admission + device/attestation as product allows; system design still needs the ticket bound."
+**If they ask sold out vs busy.** "Different codes. `Retry-After` for busy. Sold out only when sold equals N and no holds are live."
 
-**If they ask what pages.** "Admission queue wait, reserve QPS, oversell/cancel rate."
+**If they ask bots.** "One rank per account, account-bound tickets, and costs on fake accounts. The ticket bound holds even when bot checks miss."
+
+**If they ask what pages.** "Join error rate, reserve rate against the row ceiling, hold expiry rate, oversell count. Oversell above zero pages someone."
 
 ## Say this in the room
 
-A flash sale puts admission control in front of inventory so ten thousand arrivals a second do not become ten thousand conditional updates on one row — tickets or a waiting room bound reserve QPS, and I name the fairness rule. I refuse sharding the remaining counter into independent buckets unless I explicitly accept oversell under skew. Sold out and admission-busy are different codes. Oversell, if allowed at all, has a compensation budget; otherwise hard stop when remaining hits zero. Checkout saga underneath is still day 69.
+A flash sale puts admission control in front of inventory, so a million arrivals become about 300 stock writes a second on one row. I rank shoppers with a per-account lottery over a pre-start window, publish one cached watermark for positions, and hand out signed tickets that checkout verifies on its own. I won't shard the stock counter: capped shards strand stock and uncapped ones oversell. Sold out and busy are different answers. Expired holds return stock, and the controller admits more. Checkout underneath is Day 69.
 
-### Staff depth: why sharding the counter fails
+### Staff depth: the admission controller is the design
 
-Independent shard remainings oversell under skewed redeem. Global remaining + admission, or accept oversell math.
+Everything else is standard parts. The controller decides how many people reach the stock row and when to stop. Say its inputs (held, sold, expiry, checkout errors), its output (the watermark), and its stop rule (`held + sold = N`).
 
-**Fairness.** Spoken lottery/FCFS/VIP.
+**Fairness.** One sentence: who gets a rank, how, and what it costs.
 
-**What staff sounds like.** Admission before reserve; refuse naive shard; distinct sold-out vs busy.
+**What staff sounds like.** Admission before stock. Watermark instead of per-user polling. One row, bounded traffic. Honest sold-out.
 
 ### More probes, with the answer
 
-**"What pages?"** Name the user-visible lag or error metric from Failure — not only CPU. **"What do you refuse?"** Pick one refusal from Trade-offs and say the lie it prevents. **"What is the sensitive assumption?"** The estimate that flips the design if wrong by 10×.
+**"Why not just add database capacity?"** One item is one row. More replicas don't speed up writes to a single row. Bounding traffic does.
+
+**"What if payment success drops to 30%?"** You need ~33k admits for 10k units. The controller keeps admitting as holds expire. Measure the rate live; don't hardcode it.
+
+**"Can a shopper keep their spot if they refresh?"** Yes. Join is idempotent per account, so refresh returns the same rank.
+
+**"What's the sensitive assumption?"** Payment success inside T. Wrong by 2×, and you either admit too few (unsold stock, long tail) or too many (crowded checkout, angry ticket holders).
 
 ## Kit artifact
 
 | Follow-up | You answer with |
 |---|---|
-| "Why not just shard stock?" | Sharding a single scarce count oversells without a lock on the sum — back to one row; queue instead. |
+| "Why not just shard stock?" | Capped shards strand stock under skew, and uncapped shards oversell. Bound the traffic and keep one row. |
+| "How do 1M people see their position?" | One cached watermark every ~1 s. Position = my rank − watermark, done on the client. |
+| "When do you say sold out?" | When sold = N and no holds are live. Before that, "all held, may free up." |
+| "What stops bots?" | One rank per account, account-bound signed tickets, and costs on fake accounts. |
 
 ## Design log
 
-One line: your fairness rule and the admit rate you chose vs inventory ceiling.
+One line: your fairness rule, your admit rate against the row ceiling, and your stop rule.
 
 Next: [Day 71 — Social graph](71-social-graph.md). Follow, block, privacy on the read path.
 

@@ -39,7 +39,7 @@ Celebrity check: 50M followers × 8-byte ids = 400 MB.
 If your API can return that in one response, it eventually will. Then it times out.
 
 **6/**
-In the room, say this early:
+In the interview, say this early:
 
 "The graph is small. The reads are the cost. And block gets a tighter promise than unfollow."
 

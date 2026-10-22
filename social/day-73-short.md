@@ -16,7 +16,7 @@ Here's the catch. A polite crawler hits each website about once a second. So 100
 **[30–42 s] The surprise**
 And one site with 10 million pages? At one request a second, that's about 116 days for a single pass. You won't finish. You choose which pages are worth it.
 
-**[42–52 s] The line to say in the room**
+**[42–52 s] The line to say in the interview**
 So say this in your interview: "Politeness is capacity. I size ready hosts before I size fetchers."
 
 **[52–58 s] Close**

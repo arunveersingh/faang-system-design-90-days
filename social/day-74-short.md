@@ -16,7 +16,7 @@ So one core already covers your busiest symbol about 100 times over. Add a secon
 **[30–44 s] The promise**
 The hard part is what you tell the trader. When you say "ACK," it should mean the order is recorded and safe. Not that it's filled. Fills come later as separate events.
 
-**[44–53 s] The line to say in the room**
+**[44–53 s] The line to say in the interview**
 So say this in your interview: "One core covers the load, so I spend my complexity on the ack, the fence, and the rebuild."
 
 **[53–59 s] Close**

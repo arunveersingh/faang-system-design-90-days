@@ -16,7 +16,7 @@ The hard part is the block button. Block isn't unfollow. It works both ways, and
 **[32–44 s] The promise**
 And it can't lag. Seeing one old post from someone who unfollowed you is fine. Seeing someone you blocked for ten more minutes is a privacy bug.
 
-**[44–53 s] The line to say in the room**
+**[44–53 s] The line to say in the interview**
 So say this in your interview: "The graph is small, the reads are the cost, and block gets a tighter promise than unfollow."
 
 **[53–59 s] Close**

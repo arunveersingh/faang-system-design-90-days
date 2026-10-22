@@ -40,7 +40,7 @@ Two small rules that interviewers love:
 Clocks drift. Sequence doesn't.
 
 **6/**
-In the room, say this early:
+In the interview, say this early:
 
 "One core covers the load, so I spend my complexity on the ack, the fence, and the rebuild."
 
