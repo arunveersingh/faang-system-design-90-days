@@ -131,7 +131,9 @@ Unmatched rows carry `age_days`. Report by bucket: 0–2 days is normal lag, 3�
 
 ### Worked numbers
 
-Say the ledger closes its day at midnight IST and the provider's report day is UTC. The two days are offset by 5.5 hours, so 5.5 ÷ 24 ≈ **23%** of charges carry a different date on each side. That is **~20M** charges a day. Match on an exact date and every one becomes a false exception. The ±1 day window removes them for free; the cost is a slightly bigger join.
+Say the ledger closes its day at midnight IST and the provider's report day is UTC. IST runs 5.5 hours ahead, so a payment made between 00:00 and 05:30 IST lands on the **previous** UTC day. Payments made after 05:30 IST get the same date on both sides. Only that early-morning slice disagrees, and those are quiet hours for most consumer traffic, so the share is far below 5.5 ÷ 24. (That fraction would be right only if traffic were flat all day. It is not.)
+
+The real share depends on your traffic shape, so treat any number as an assumption. Say **3%** of daily volume falls between 00:00 and 05:30 IST. At the ~86M payments a day from the assumptions, that is about **2.6M** rows a day with a different date on each side. If your traffic is flatter, say 8%, it is closer to 7M. Either way, exact-date matching turns every one of them into a false exception. The ±1 day window removes them for free; the cost is a slightly bigger join.
 
 ## Diagrams
 
@@ -171,7 +173,7 @@ Caption: "Keep the file. Match on one key. Append the fix."
 
 **Daily batch vs streaming recon.** Batch, because the provider truth arrives as a daily file. Streaming buys nothing until the provider offers event-level settlement data.
 
-**Name the refusal inside each alternative.** Against silent UPDATE: you refuse unauditable books. Against amount-and-time matching: you refuse mis-attribution. Against exact-date matching: you refuse hundreds of thousands of false exceptions. Against fuzzy auto-repair: you refuse the machine moving money on a guess. Against non-idempotent reruns: you refuse double corrections after a crash.
+**Name the refusal inside each alternative.** Against silent UPDATE: you refuse unauditable books. Against amount-and-time matching: you refuse mis-attribution. Against exact-date matching: you refuse millions of false exceptions a day (about 2.6M at a 3% early-morning share). Against fuzzy auto-repair: you refuse the machine moving money on a guess. Against non-idempotent reruns: you refuse double corrections after a crash.
 
 **10× volume.** ~860M payments a day. Same job, 640 partitions instead of 64. The rules do not change. Exceptions at the same rate become ~86k a day, so auto-repair coverage matters more, not less.
 
