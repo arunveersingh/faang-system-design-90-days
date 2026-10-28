@@ -49,46 +49,80 @@ Write:
 
 ## Requirements
 
-**In.** Cart (mutable). Checkout → order with line prices snapshotted, tax/shipping estimate, stock reservation, payment. Order states. Guest or user carts.
+**In.** A cart the shopper can change freely. Checkout turns the cart into an order with frozen line prices, tax and shipping, a stock hold, and a payment. Order states the shopper and support can see. Guest carts and signed-in carts.
 
-**Assumptions.** **5,000** checkouts/s peak (ambitious); more typically **500**/s — use **500**/s peak. Cart ops higher. One region.
+**Assumptions.** **500** checkouts/s at peak, about **3** lines per cart. Cart reads and edits run 10–20× higher than checkouts. One region. Card and UPI payments, so some payments finish in seconds and some take minutes (a one-time password, or approving a UPI request in another app).
 
-**Out.** Flash waiting room (day 70), multi-warehouse ATP optimization, promotions engine deep dive.
+**Out.** The flash-sale waiting room (day 70), picking the best warehouse, and a deep promotions engine. Treat a coupon as one more line with a frozen amount.
 
 ## Estimates
 
-500 checkouts/s; each does reserve + pay + commit — budget latency **2–5 s**. Idempotency store and order primary sized for that.
+- **Stock holds.** 500 checkouts/s × 3 lines = **1,500** hold writes/s at peak. Spread across many items, that's easy. The hard case is one hot item, which is day 70's problem.
+- **Idempotency records.** One per checkout attempt, kept 24 hours. If the full day ran at peak: 500 × 86,400 ≈ **43 M** rows × ~1 KB ≈ **43 GB**. Real days average well below peak, so this is a ceiling, not a target.
+- **Orders.** Say the day averages 100 checkouts/s: 100 × 86,400 ≈ **8.6 M** orders/day × ~2 KB ≈ **17 GB/day**. That's months of growth before the order store needs splitting.
+- **Latency.** Card authorization from a payment provider usually lands in 1–3 s. Budget **5 s** for the whole synchronous path, and switch to "processing" once a payment goes asynchronous.
+- **Hold lifetime.** If a one-time password or UPI approval can take a few minutes, a 60-second hold is a bug. Use about **15 minutes**, well beyond the slowest normal payment.
+
+The number that flips the design: how long payment can stay unknown. Seconds means a simple synchronous checkout. Minutes means you need a pending order state and a background sweeper.
 
 ## API and data
 
-Cart APIs. `POST /v1/checkout` `{cart_id, idempotency_key}` → order_id.
+```
+POST /v1/carts/{cart_id}/items   {sku, qty}
+POST /v1/checkout                {cart_id, idempotency_key}
+  → 201 {order_id, state}         first time
+  → 200 {order_id, state}         same key again
+  → 409 {reason: price_changed | out_of_stock}
+GET  /v1/orders/{order_id}
+```
 
-Order: lines with `unit_price_snapshot`, `reservation_id`, `payment_id`, state.
+**Cart.** `cart_id, owner, lines[{sku, qty, price_seen}]`. Soft state: a key-value store or a plain table, with a TTL on guest carts. `price_seen` is only there to warn the shopper. It is never what you charge.
+
+**Idempotency record.** `(owner, key) UNIQUE`, plus a hash of the request body, the resulting `order_id`, and the current step. Same key with a different body returns 422, so a buggy client can't reuse a key for a different cart.
+
+**Order.** `order_id, owner, state, currency, total_minor`, then lines `{sku, qty, unit_price_minor, tax_minor, reservation_id}`, then `payment_id`. Store money as integers in the smallest unit (paise, cents). Floats round, and rounding errors show up in reconciliation (day 66).
+
+**Order states.** `pending_payment → placed → captured → shipped`, with exits to `payment_failed` and `cancelled`. Every step change is a conditional update ("set placed where state = pending_payment"), so two workers can't both advance the same order.
 
 ## Design
 
 ### Checkout saga (day 41 shape)
 
-1. Idempotency begin.
-2. Read cart; snapshot prices from catalog (or refuse if price changed beyond tolerance — product choice: **reprice and show confirm** vs snap whatever). Prefer **snapshot at checkout start**; if stock/price invalid, 409 with reason.
-3. Reserve inventory (day 49) for lines.
-4. Authorize payment (day 65) for snapshotted total.
-5. Commit reservation; mark order `placed`; clear cart.
-6. Capture payment async or at ship — product choice; say **capture on place** for digital, **auth now capture on ship** for physical.
+1. **Claim the key.** Insert the idempotency record. If it already exists, return whatever that record points to and stop.
+2. **Freeze prices.** Read current catalog prices and compare them with `price_seen`. A drop goes through at the new, lower price. A rise returns 409 `price_changed` with the new total. The shopper confirms, and the client retries with a **new** key, because it's a new purchase decision.
+3. **Write the order** as `pending_payment` with the frozen prices. Now there's a durable row that every later step and every retry can find.
+4. **Hold stock** for each line (day 49), with the 15-minute hold. If any line fails, release the lines you already held and mark the order `cancelled` with reason `out_of_stock`.
+5. **Authorize payment** (day 65) for the frozen total, passing the `order_id` as the provider's idempotency key. A retried call then can't create a second authorization.
+6. **On success:** commit the holds into real stock decrements, set the order to `placed`, and clear the cart.
+7. **Capture.** Capture right away for digital goods. For physical goods, authorize now and capture at shipping. Card authorizations expire after roughly a week (it varies by card network), so a slow warehouse needs a re-authorize path.
 
-Compensations: pay fail → release reserve. Reserve fail → no pay. Pay succeeded, commit reserve fail → recovery commit or refund (day 49/65 crash windows).
+Why this order: write the order before touching stock or money, so every failure has a row to hang its repair on. Hold stock before charging, so you never take money for goods you can't ship.
 
-### Retries
+### Compensations, step by step
 
-Same checkout key returns same order. New key = new attempt (may 409 on stock).
+| Fails at | Undo |
+|---|---|
+| Price check | Nothing to undo. 409. |
+| Stock hold | Release earlier holds. Order `cancelled`. |
+| Payment declined | Release all holds. Order `payment_failed`. Shopper can retry with a new key. |
+| Payment unknown (timeout) | **Do nothing yet.** Keep the holds. The sweeper asks the provider. |
+| Commit after successful payment | Retry the commit (it's idempotent per `reservation_id`). Only if stock is truly gone: void or refund, then cancel. |
 
-### Stale cart prices
+### The sweeper
 
-Show "price changed" if catalog moved before checkout; do not silently charge old if policy requires confirm.
+A background job scans `pending_payment` orders older than about 60 s. It asks the provider for the payment's status using the `order_id`, then moves the order forward (`placed`) or back (`payment_failed` plus hold release). Orders still unknown after the hold lifetime get extended once, then go to a human queue. Never release stock while the payment can still succeed.
 
-### Staff arithmetic: saga order
+### Retries and double clicks
 
-Checkout is a saga (day 41): snapshot price → hold stock → authorize payment → commit order. Wrong order creates money without stock or stock without money. Idempotency key on checkout intent makes retries safe. Cart is soft state; order is the durable purchase. Flash traffic is day 70 — today is correctness under retries and partial failure. Price snapshot freezes what the user saw; post-checkout catalog changes must not rewrite the order.
+The client generates the key once, when the shopper lands on the review page, and reuses it for every retry of that checkout. Same key: same order, whatever step it reached. A button that makes a new key per click is how shoppers get charged twice.
+
+### Worked numbers
+
+A shopper's cart has 2 × ₹1,200 headphones (₹2,400) and 1 × ₹800 case. The headphones drop to ₹1,100 while they browse.
+
+- At checkout, the price check sees ₹1,200 seen vs ₹1,100 now. Your policy: a price **drop** can go through silently at the new price, and a price **rise** returns 409. Here the order freezes at ₹2,200 + ₹800 = **₹3,000**.
+- The shopper double-taps Pay. Both requests carry key K. The second finds the record and returns the same `order_id`. One authorization of ₹3,000.
+- The UPI approval takes 4 minutes. The order sits in `pending_payment`. The 15-minute hold covers it, and the sweeper picks it up at 60 s and keeps polling. If the hold were 60 s, those headphones would have been resold to someone else.
 
 ## Diagrams
 
@@ -99,75 +133,96 @@ sequenceDiagram
   participant I as Inventory
   participant P as Payments
   S->>C: checkout key=K
-  C->>I: reserve
-  C->>P: authorize
-  C->>I: commit
-  C-->>S: 201 order
-  S->>C: checkout key=K
-  C-->>S: same order
+  C->>C: claim K, freeze prices, order=pending_payment
+  C->>I: hold lines (15 min)
+  C->>P: authorize total, key=order_id
+  P-->>C: approved
+  C->>I: commit holds
+  C-->>S: 201 order placed
+  S->>C: checkout key=K (double tap)
+  C-->>S: 200 same order
 ```
 
-Caption: "One key, one order. Compensations on failure paths."
+Caption: "The order row exists before any stock or money moves. One key, one order."
+
+```mermaid
+stateDiagram-v2
+  [*] --> pending_payment
+  pending_payment --> placed: payment approved + holds committed
+  pending_payment --> payment_failed: declined (release holds)
+  pending_payment --> cancelled: out of stock / unknown too long
+  placed --> captured
+  captured --> shipped
+```
 
 ## Failure the user sees
 
-**Pay success, stock fail.** Compensate: void/refund payment; do not create shipped order. User sees payment reversed + apology.
+**Paid, then stock commit fails.** Retry the commit first. If the stock really is gone, void the authorization (or refund after capture) and cancel. The shopper sees "we couldn't get this item, your money is on its way back", not a silent order that never ships.
 
-**Stock hold, pay unknown.** Leave hold until pay terminal; then commit or release. Do not release stock while pay may still capture.
+**Payment unknown.** The shopper sees "processing, we'll confirm shortly". Holds stay. The sweeper resolves it in under a minute in the normal case.
 
-**Double checkout click.** Same idempotency key → same order id. New key → risk double order — client must stabilize key.
+**Double click.** Same key, same order. A new key per click is a client bug. Say it out loud.
 
-**Stale cart price.** Item was $10 in cart, now $12; checkout snapshots and may revalidate — say policy (fail if drift > ε, or charge snapshot with disclosure).
+**Price changed.** A rise gets a 409 and a confirm screen. Never charge more than the shopper saw without asking.
 
-**Hold expires mid-pay.** Pay may succeed; stock gone → refund path. Hold TTL > pay budget (day 61/65).
+**Hold expires mid-payment.** This should be rare, because the hold outlives the slowest normal payment. If it happens, retry the hold. If the stock is gone, refund.
 
 ## Trade-offs
 
-**Sync checkout vs async order.** Sync until pay+commit for small carts; async for heavy risk with clear "processing" UI.
+**Synchronous checkout vs pending order.** Synchronous is simpler and fine when payment finishes in seconds. Once one-time passwords or UPI enter, you need `pending_payment` and a sweeper anyway, so design for it from the start.
 
-**Cart in cookie vs server.** Server cart for logged-in; either way checkout creates server order.
+**Server cart vs browser cart.** A server cart follows a signed-in shopper across devices. A browser cart is cheap for guests. Either way, checkout reads the cart once and the order is the record.
 
-**Name the refusal inside each alternative.** Against pay before stock hold: you refuse charging for unreservable goods. Against new idempotency key on retry: you refuse double orders. Against mutating order prices after commit from catalog: you refuse rewriting receipts. Against releasing hold while pay unknown: you refuse oversell when capture lands.
+**Silent reprice vs confirm.** Silent drops are friendly. Silent rises are a support ticket and, in some places, a consumer-law problem. Confirm on any rise.
 
-**10× checkout QPS.** More order shards; same saga. Day 70 if the cliff is fairness/admission.
+**Name the refusal inside each alternative.** Against charging before holding stock: you refuse taking money for goods you can't ship. Against a new key per retry: you refuse double orders. Against rewriting order prices from the catalog later: you refuse rewriting receipts. Against releasing holds while payment is unknown: you refuse overselling when the late payment lands.
+
+**10× checkouts.** 5,000/s × 3 lines = 15,000 hold writes/s. Split orders and idempotency records by `owner`. The saga stays the same. If the pressure is one hot item, that's day 70.
 
 ## Talking points
 
-**If they charge then reserve.** "Compensation hell and angry charged users. Hold first or atomic with clear order."
+**If they charge then reserve.** "Then a stock failure means refunding someone who already saw a success screen. Hold first, then pay."
 
-**If they ask saga vs 2PC.** "Saga with compensations across stock and payment services — day 41. 2PC across provider is fantasy."
+**If they ask saga vs two-phase commit.** "Saga with compensations, day 41. The payment provider won't join my transaction, so a two-phase commit isn't on the table."
 
-**If they ask price changes.** "Snapshot at checkout; policy for drift. Order row immutable on price."
+**If they ask about price changes.** "Freeze at checkout. Drops go through, rises need a confirm. The order row never changes price after that."
 
-**If they ask abandoned carts.** "Holds expire; carts linger. Not orders."
+**If they ask about abandoned carts.** "Carts are soft and can linger. Holds expire in 15 minutes. Orders only exist once checkout starts."
 
-**If they ask what pages.** "Checkout compensation rate, pay-unknown aged intents, hold expiry during pay."
+**If they ask what pages.** "Orders stuck in `pending_payment` past 15 minutes, the refund-after-pay rate, and holds that expired during payment. Each one is a shopper with money or stock in limbo."
 
 ## Say this in the room
 
-Checkout creates an order intent with an idempotency key, snapshots prices, holds stock, then authorizes payment — and compensates in reverse if a later step fails. A double click with the same key returns the same order; a new key is how you double-charge. I will not release a stock hold while payment is still unknown, and I will not rewrite order prices from a later catalog change. Cart is soft; the order row is the receipt. Flash admission is day 70 if we need it.
+Checkout claims an idempotency key, freezes prices into a `pending_payment` order, holds stock for 15 minutes, then authorizes payment using the order id as the provider's key. Success commits the holds and places the order. A decline releases the holds. A timeout releases nothing: a sweeper asks the provider and finishes the job. A double click with the same key returns the same order. I won't release stock while payment is still unknown, and I won't change an order's prices after checkout. Flash-sale admission is day 70 if we need it.
 
-### Staff depth: saga order and compensations
+### Staff depth: write the order first
 
-Hold → pay → commit. Fail pay → release hold. Fail after pay → refund + release. Idempotent intent.
+Juniors start with "reserve stock". Staff starts with "write a `pending_payment` order". That row is what makes every other step safe. Retries find it. The sweeper scans it. Support can read it. Compensation has an id to work from.
 
-**TTL.** Hold outlives pay budget.
+**The sensitive number.** How long payment can stay unknown. It sets the hold lifetime, the sweeper interval, and whether checkout is synchronous at all.
 
-**What staff sounds like.** Saga steps named in order; compensation paths; idempotent checkout key.
+**What staff sounds like.** Saga steps in order, the undo for each one, "unknown is not failure", and the client-owned idempotency key.
 
 ### More probes, with the answer
 
-**"What pages?"** Name the user-visible lag or error metric from Failure — not only CPU. **"What do you refuse?"** Pick one refusal from Trade-offs and say the lie it prevents. **"What is the sensitive assumption?"** The estimate that flips the design if wrong by 10×.
+**"Two tabs, same cart, both check out?"** Two keys, so two orders could start. The stock hold settles it for scarce items. For plenty of stock, both orders are real purchases, and that's fine. Optionally lock the cart while a checkout on it is in progress.
+
+**"Why not use the cart id as the key?"** Because the shopper may check out the same cart, fail on a declined card, then retry with a different card. That's a new attempt and needs a new key.
+
+**"How do you test this?"** Kill the checkout worker after each step and confirm the sweeper drives every order to a final state with stock and money matching.
 
 ## Kit artifact
 
 | Follow-up | You answer with |
 |---|---|
-| "Double charge?" | Checkout idempotency key + payment key; same order returned. |
+| "Double charge?" | Client-owned checkout key, plus `order_id` as the provider's key. Same order back. |
+| "Payment times out?" | Order stays `pending_payment`, holds stay, sweeper asks the provider. |
+| "Price changed?" | Freeze at checkout. Drops pass, rises need a confirm. |
+| "Paid but out of stock?" | Retry the commit, then void or refund and cancel. |
 
 ## Design log
 
-One line: your step order and the compensation for pay-success/reserve-fail.
+One line: your step order, and what happens to stock when payment times out.
 
 Next: [Day 70 — Flash sale](70-flash-sale.md). Queue buyers; fairness; protect the DB.
 
