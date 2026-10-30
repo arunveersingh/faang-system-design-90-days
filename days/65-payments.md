@@ -60,7 +60,7 @@ Write:
 - **Payments per day.** 200/s × 86,400 s ≈ **17M**.
 - **Ledger rows.** A capture books about 4 entries (customer side, merchant payable, PSP fee, platform fee). 17M × 4 ≈ **70M rows/day**. At ~150 bytes a row that's about **10 GB/day**, so ~3.8 TB a year before indexes. Partition by month.
 - **Peak writes.** 1,000/s × 4 ≈ **4,000 inserts/s** at peak. One well-tuned relational primary can take that. Shard by `merchant_id` when it can't, because a payment never moves money across two merchants.
-- **Unknowns.** If 0.1% of provider calls time out, that's **1/s** at peak, about **3,600 an hour** sitting in `unknown`. That number sizes the recovery worker, and it's also the number of double charges per hour you'd cause by retrying with a fresh key.
+- **Unknowns.** If 0.1% of provider calls time out, that's **1/s** at peak, about **3,600 an hour** sitting in `unknown`. That number sizes the recovery worker, and it's also the most double charges per hour you could cause by retrying with a fresh key.
 
 The cliff here is correctness under retries, not network bandwidth.
 
@@ -209,7 +209,7 @@ Payments are a state machine with a double-entry ledger. I write our row first w
 
 Most candidates say "use idempotency keys". Staff candidates say which keys (client to us, us to provider, ledger unique index), what happens on timeout (202, `unknown`, worker), and when the safety runs out (provider key pruning, about 24 hours on Stripe).
 
-**What staff sounds like.** Three crash windows named. Conditional transitions with a version check. Entries that sum to zero. 3,600 unknowns an hour at 0.1% timeouts, and why each one would be a double charge with a fresh key.
+**What staff sounds like.** Three crash windows named. Conditional transitions with a version check. Entries that sum to zero. 3,600 unknowns an hour at 0.1% timeouts, and why each one could become a double charge with a fresh key.
 
 ### More probes, with the answer
 

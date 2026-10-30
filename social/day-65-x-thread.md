@@ -29,7 +29,7 @@ When the shop retries, it sends the same ID. The payment company sees "I already
 
 5/ The mistake that double-charges you: retrying with a brand new ID. To the payment company, that looks like a fresh purchase.
 
-At 1,000 payments a second, if just 0.1% time out, that's 3,600 double charges an hour.
+At 1,000 payments a second, if just 0.1% time out, that's up to 3,600 double charges an hour.
 
 6/ And the app should say "Payment processing", not "Payment failed", while it checks. "Failed" is what made you tap Pay again in the first place.
 
